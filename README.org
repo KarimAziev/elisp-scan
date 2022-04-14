@@ -1,0 +1,16 @@
+* elisp-scan
+
+Find unused code in Emacs Lisp files.
+
+** Requirements
+
+- Emacs Emacs 27.1
+- ag (v2.0.0+)
+- projectile
+- ivy (optional)
+
+** Commands
+
+- ~elisp-scan-report~
+- ~elisp-scan-query-remove-unused~
+- ~elisp-scan-ivy-read-unused-items~
