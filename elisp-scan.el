@@ -471,10 +471,10 @@ what to do with it."
           (let ((buff (or (get-file-buffer file)
                           (progn
                             (find-file-noselect file)
-                            (get-file-buffer file)))))
-            (when (and (equal answer ?r)
-                       for-all
-                       next
+                            (get-file-buffer file)
+                            (when next (elisp-scan-get-prop next :file))))))
+            (when (and next
+                       (stringp for-all)
                        (not (equal file (elisp-scan-get-prop next :file))))
               (setq for-all nil))
             (with-current-buffer buff
@@ -491,7 +491,9 @@ what to do with it."
                                (elisp-scan-read-action
                                 "Remove:\s"))))
                       (if (member c '(?! ?r))
-                          (setq for-all t)
+                          (setq for-all (pcase c
+                                          (?! (setq for-all t))
+                                          (?r (setq for-all file))))
                         (setq answer c))))
                   (pcase answer
                     (?i (push file exlcuded-files))
