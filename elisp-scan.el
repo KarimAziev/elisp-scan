@@ -5,7 +5,7 @@
 ;; Author: Karim Aziiev <karim.aziiev@gmail.com>
 ;; Version: 0.1.0
 ;; URL: https://github.com/KarimAziev/elisp-scan
-;; Package-Requires: ((emacs "27.2") (ag "2.0"))
+;; Package-Requires: ((emacs "26.1"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -26,17 +26,42 @@
 
 ;; This is a tool for finding unused code in Emacs Lisp files.
 
+;;; Commands
+
+;;; M-x `elisp-scan-current-file'
+;;; Show unused items in the current file.
+
+;;; M-x `elisp-scan-all-unused-defs'
+;;; Check every project file for unused definitions.
+
+;;; M-x `elisp-scan-query-remove-unused'
+;;; Query remove unused definitions.
+
+;;; M-x `elisp-scan-ivy-read-unused-items'
+;;; Read and operate on found unused definitions with ivy.
+
+;;; Customizations
+
+;;; `elisp-scan-archive-dir'
+;;; Where to write backup files.
+
+;;; `elisp-scan-types-symbols'
+;;; Symbols which should always be checked.
+
+;;; `elisp-scan-permanent-dirs'
+;;; In which directories always check usage.
+
 ;;; Code:
 
-(require 'projectile)
+(require 'project)
 
 (declare-function ivy-read "ivy")
 (declare-function ivy--get-window "ivy")
 
-(defcustom elisp-scan-types '("defun" "cl-defun" "defvar" "defconst"
-                                 "defmacro" "defvar-local" "defcustom")
-  "Types to check."
-  :type '(repeat string)
+(defcustom elisp-scan-types-symbols '(defun cl-defun defvar defconst defmacro
+                                            defvar-local)
+  "Symbols which should always be checked."
+  :type '(repeat symbol)
   :group 'elisp-scan)
 
 (defcustom elisp-scan-archive-dir (expand-file-name
@@ -45,6 +70,21 @@
   "Where to write backup files."
   :type 'file
   :group 'elisp-scan)
+
+(defcustom elisp-scan-permanent-dirs `(,user-emacs-directory)
+  "In which directories always check usage."
+  :type '(repeat directory)
+  :group 'elisp-scan)
+
+(defmacro elisp-scan-with-temp-buffer (&rest body)
+  "Execute BODY with in temp buffer with `emacs-lisp-mode-syntax-table'."
+  (declare (indent 2) (debug t))
+  `(with-temp-buffer
+     (erase-buffer)
+     (delay-mode-hooks
+       (emacs-lisp-mode)
+       (progn
+         ,@body))))
 
 (defun elisp-scan-re-search-forward-inner (regexp &optional bound count)
   "This function is helper for `elisp-scan-re-search-forward'.
@@ -129,10 +169,13 @@ Arguments BOUND, NOERROR, COUNT has the same meaning as `re-search-forward'."
           "\\_>"))
 
 (defun elisp-scan-types-re ()
-  "Return regexp for definitions from `elisp-scan-types'."
+  "Return regexp for definitions from `elisp-scan-types-symbols'."
   (concat "\\("
           "[(]"
-          "\\(" (mapconcat 'regexp-quote elisp-scan-types "\\|") "\\)"
+          "\\(" (mapconcat 'regexp-quote
+                           (mapcar 'symbol-name elisp-scan-types-symbols)
+                           "\\|")
+          "\\)"
           "[\s\t\n]"
           "\\([^\s\t\n),]+\\)"
           "\\)"))
@@ -171,25 +214,72 @@ outside of any parentheses, comments, or strings encountered in the scan."
         (push sexp sexps)))
     sexps))
 
-(defvar elisp-scan-files-cache (make-hash-table :test 'equal))
+;;;###autoload
+(defun elisp-scan-top-level-maybe-unused-defs ()
+  "Return alist with defined top level items which is unused in current buffer.
+For example (SYMBOL-NAME . defun)."
+  (let ((sexps))
+    (goto-char (point-max))
+    (while (elisp-scan-backward-list)
+      (when-let ((sexp (unless (nth 4 (syntax-ppss (point)))
+                         (list-at-point))))
+        (when-let ((def-type (car (memq (nth 0 sexp) elisp-scan-types-symbols)))
+                   (id (nth 1 sexp)))
+          (let* ((command (eq 'interactive
+                              (when (memq def-type '(defun cl-defun))
+                                (if (stringp (nth 4 sexp))
+                                    (car (nth 5 sexp))
+                                  (car (nth 4 sexp))))))
+                 (name (symbol-name id))
+                 (re (elisp-scan-make-re name))
+                 (item (when (null
+                              (or
+                               (save-excursion
+                                 (elisp-scan-re-search-backward re nil t 1))
+                               (save-excursion
+                                 (forward-sexp 1)
+                                 (elisp-scan-re-search-forward re nil t 1))))
+                         (cons name (symbol-name (if command 'interactive
+                                                   def-type))))))
+            (when item
+              (push item sexps))))))
+    sexps))
 
-(defmacro elisp-scan-with-temp-buffer (&rest body)
-  "Execute BODY with in temp buffer with `emacs-lisp-mode-syntax-table'."
-  (declare (indent 2) (debug t))
-  `(with-temp-buffer
-     (erase-buffer)
-     (lisp-mode-variables nil)
-     (set-syntax-table emacs-lisp-mode-syntax-table)
-     (progn
-       ,@body)))
+(defun elisp-scan-find-project-files (&optional directory no-filter)
+  "Return all elisp files from project instance in DIRECTORY.
+If optional argument NO-FILTER is non-nil, return all files, else
+return only elisp files."
+  (let* ((pr (project-current t directory))
+         (dirs (list (project-root pr)))
+         (files (project-files pr dirs)))
+    (if no-filter
+        (seq-remove
+         (apply-partially 'string-match-p "\\.elc\\|\\.gpg$")
+         files)
+      (mapcar
+       (lambda (file) (expand-file-name file pr))
+       (seq-filter (apply-partially 'string-match-p "\\.el$") files)))))
 
-(defun elisp-scan-set-file-cache (file value)
-  "Put VALUE to `elisp-scan-files-cache' under FILE as key."
-  (let ((tick (file-attribute-modification-time (file-attributes
-                                                 file
-                                                 'string))))
-    (puthash file (list :tick tick :cache value)
-             elisp-scan-files-cache)))
+(defun elisp-scan-find-files-in-projects (directories)
+  "Return all elisp files from project instances in DIRECTORIES."
+  (seq-reduce (lambda (acc dir) (append acc (elisp-scan-find-project-files dir t)))
+              directories '()))
+
+(defun elisp-scan-get-file-or-buffer-content (buffer-or-file)
+  "Return a substring of BUFFER-OR-FILE without text properties.
+BUFFER-OR-FILE can be a buffer or file."
+  (with-temp-buffer
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (cond ((bufferp buffer-or-file)
+             (insert-buffer-substring-no-properties
+              (get-buffer buffer-or-file)))
+            ((file-exists-p buffer-or-file)
+             (if-let ((buff (get-file-buffer buffer-or-file)))
+                 (insert-buffer-substring-no-properties
+                  buff)
+               (insert-file-contents buffer-or-file))))
+      (buffer-string))))
 
 (defun elisp-scan-lists-in-files (files)
   "Find all Lisp forms in FILES and return alist of (FILE . FILE-LISTS)."
@@ -199,8 +289,7 @@ outside of any parentheses, comments, or strings encountered in the scan."
           (erase-buffer)
           (insert-file-contents file)
           (when-let ((sexps (elisp-scan-top-level-lists)))
-            (push (cons file sexps) founds)
-            (elisp-scan-set-file-cache file sexps)))
+            (push (cons file sexps) founds)))
         founds)))
 
 (defun elisp-scan-make-overlay (beg end props)
@@ -280,20 +369,10 @@ ITEM should be a propertized string."
                     unused))))))
     unused))
 
-(defun elisp-scan-find-project-files ()
-  "Return list of elisp files in `user-emacs-directory.'."
-  (require 'projectile)
-  (when-let* ((project (projectile-project-root))
-              (files (seq-filter (apply-partially 'string-match-p "\\.el$")
-                                 (projectile-project-files
-                                  (projectile-project-root)))))
-    (mapcar (lambda (file) (expand-file-name file project)) files)))
-
 (defun elisp-scan-find-all-unsused-defs ()
   "Return unsused defs in project files."
-  (require 'pp)
   (elisp-scan-with-temp-buffer
-      (insert (pp-to-string
+      (insert (prin1-to-string
                (elisp-scan-lists-in-files
                 (elisp-scan-find-project-files))))
       (reverse (elisp-scan-find-all-unsused-defs-0))))
@@ -354,18 +433,6 @@ ITEM should be a propertized string."
                   acc))
               items '()))
 
-(defun elisp-scan-unused-trasnform-items (items)
-  "Annotate ITEMS."
-  (mapcar (lambda (it)
-            (setq it (format "%s" it))
-            (apply 'propertize
-                   (concat (elisp-scan-get-prop it :type) ": "
-                           (elisp-scan-get-prop it :id)
-                           "  "
-                           (elisp-scan-get-prop it :file))
-                   (text-properties-at 0 it)))
-          items))
-
 (defvar elisp-scan-unused-items nil)
 (defun elisp-scan-highlight-confirm (&optional start end prompt)
   "Highlight region beetwen START and END with PROPS and ask PROMPT."
@@ -382,7 +449,9 @@ ITEM should be a propertized string."
                                      '(face diff-indicator-removed)))
                  (if (functionp prompt)
                      (funcall prompt)
-                   (yes-or-no-p (or prompt ""))))
+                   (yes-or-no-p (if (stringp prompt)
+                                    prompt
+                                  ""))))
         (when (and last-overlay
                    (overlayp last-overlay))
           (delete-overlay last-overlay))))))
@@ -421,7 +490,8 @@ If CONFIRM passed also prompt user."
           (setq beg (elisp-scan-re-search-backward
                      ";;;###autoload" nil t 1)))
         (unless (and confirm
-                     (not (elisp-scan-highlight-confirm beg end)))
+                     (not (elisp-scan-highlight-confirm beg end
+                                                        confirm)))
           (prog1 (buffer-substring-no-properties beg end)
             (delete-region beg (cdr bounds))
             (while (looking-at "^\n[\n]")
@@ -471,8 +541,7 @@ what to do with it."
           (let ((buff (or (get-file-buffer file)
                           (progn
                             (find-file-noselect file)
-                            (get-file-buffer file)
-                            (when next (elisp-scan-get-prop next :file))))))
+                            (get-file-buffer file)))))
             (when (and next
                        (stringp for-all)
                        (not (equal file (elisp-scan-get-prop next :file))))
@@ -525,8 +594,8 @@ what to do with it."
   "Show report gathered about unused definitions."
   (setq tabulated-list-format
         [("Name" 30 t)
-         ("File" 30 t)
-         ("Type" 20 t)])
+         ("Type" 30 t)
+         ("File" 30)])
   (tabulated-list-init-header))
 
 (defun elisp-scan-button-action (button)
@@ -542,7 +611,8 @@ what to do with it."
         (switch-to-buffer-other-window buff)
         (with-current-buffer buff
           (elisp-scan-remove-definition
-           (elisp-scan-get-prop item :id) t))))))
+           (elisp-scan-get-prop item :id)
+           "Remove?"))))))
 
 (defun elisp-scan-report-convert (definition)
   "Return information about DEFINITION.
@@ -557,25 +627,93 @@ The information is formatted in a way suitable for
      (list 'action #'elisp-scan-button-action
            'help-echo "Jump to item"
            'item definition))
-    (elisp-scan-get-prop definition :file)
-    (elisp-scan-get-prop definition :type))))
+    (elisp-scan-get-prop definition :type)
+    (abbreviate-file-name
+     (elisp-scan-get-prop definition :file)))))
 
-;;;###autoload
-(defun elisp-scan-report ()
-  "Show current statistics gathered about unused definitions."
-  (interactive)
+(defun elisp-scan-display-report (items)
+  "Show ITEMS Tabulated List buffer."
   (with-current-buffer (get-buffer-create "*elisp-scan statistics*")
     (setq tabulated-list-entries
-          (mapcar 'elisp-scan-report-convert
-                  (if (yes-or-no-p "Include commands?")
-                      (elisp-scan-if-yas-snipptes
-                       (elisp-scan-find-all-unsused-defs))
-                    (elisp-scan-if-yas-snipptes
-                     (elisp-scan-remove-if-commands
-                      (elisp-scan-find-all-unsused-defs))))))
+          (mapcar 'elisp-scan-report-convert items))
     (elisp-scan-report-mode)
     (tabulated-list-print)
     (display-buffer (current-buffer))))
+
+(defun elisp-scan-get-files-to-check ()
+  "Return files from current project and permanent projects.
+Permanent projects defined in `elisp-scan-permanent-dirs'."
+  (if-let* ((curr (project-current t default-directory))
+            (projects
+             (seq-uniq (mapcar 'expand-file-name
+                               (append (cddr curr)
+                                       elisp-scan-permanent-dirs)))))
+      (elisp-scan-find-files-in-projects projects)
+    (elisp-scan-find-project-files)))
+
+(defun elisp-scan-unused-in-file (file &optional files)
+  "Check defined items in FILE are unused both in FILE and FILES.
+Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
+  (let ((alist (elisp-scan-with-temp-buffer
+                   (insert (elisp-scan-get-file-or-buffer-content file))
+                   (elisp-scan-top-level-maybe-unused-defs))))
+    (let ((files (delete file files))
+          (not-used (mapcar 'car alist)))
+      (elisp-scan-with-temp-buffer
+          (insert
+           (mapconcat (lambda (file)
+                        (concat
+                         ";;;###FILE:"
+                         file
+                         "\n"
+                         (elisp-scan-get-file-or-buffer-content
+                          file)))
+                      files "\n\n"))
+          (dolist (name not-used)
+            (when-let ((found-file
+                        (save-excursion
+                          (when (elisp-scan-re-search-backward
+                                 (elisp-scan-make-re name) nil t 1)
+                            (when (re-search-backward
+                                   "^;;;###FILE:\\([^\n]+\\)" nil t 1)
+                              (match-string-no-properties 1))))))
+              (setq not-used (delete name not-used)))))
+      (mapcar
+       (lambda (name) (let ((it (assoc name alist)))
+                   (propertize
+                    (car it) :id (car it) :type (cdr it)
+                    :file file)))
+       not-used))))
+
+;;;###autoload
+(defun elisp-scan-current-file ()
+  "Show unused items in the current file."
+  (interactive)
+  (let* ((file buffer-file-name)
+         (files (if (and elisp-scan-permanent-dirs
+                         (yes-or-no-p
+                          (format "Include %s?"
+                                  (string-join
+                                   elisp-scan-permanent-dirs
+                                   "\s"))))
+                    (elisp-scan-get-files-to-check)
+                  (elisp-scan-find-project-files)))
+         (items (elisp-scan-unused-in-file
+                 file
+                 files)))
+    (elisp-scan-display-report items)))
+
+;;;###autoload
+(defun elisp-scan-all-unused-defs ()
+  "Check every project file for unused definitions."
+  (interactive)
+  (elisp-scan-display-report
+   (mapcar 'elisp-scan-report-convert
+           (if (yes-or-no-p "Include commands?")
+               (elisp-scan-if-yas-snipptes
+                (elisp-scan-find-all-unsused-defs))
+             (elisp-scan-remove-if-commands
+              (elisp-scan-find-all-unsused-defs))))))
 
 ;;;###autoload
 (defun elisp-scan-query-remove-unused ()
@@ -583,21 +721,46 @@ The information is formatted in a way suitable for
   (interactive)
   (save-some-buffers)
   (setq elisp-scan-unused-items (elisp-scan-if-yas-snipptes
-                                    (elisp-scan-remove-if-commands
-                                     (elisp-scan-find-all-unsused-defs))))
-  (elisp-scan-remove-unused elisp-scan-unused-items))
+                                 (elisp-scan-remove-if-commands
+                                  (elisp-scan-find-all-unsused-defs))))
+  (unwind-protect
+      (elisp-scan-remove-unused elisp-scan-unused-items)
+    (elisp-scan-cleanup-overlay)))
+
+(defun elisp-scan-unused-trasnform-items (items)
+  "Annotate ITEMS."
+  (mapcar (lambda (it)
+            (setq it (format "%s" it))
+            (apply 'propertize
+                   (concat
+                    (propertize
+                     (capitalize
+                      (elisp-scan-get-prop it :type))
+                     'face
+                     'font-lock-builtin-face)
+                    ": "
+                    (elisp-scan-get-prop it :id)
+                    "  "
+                    (elisp-scan-get-prop it :file))
+                   (text-properties-at 0 it)))
+          items))
 
 ;;;###autoload
 (defun elisp-scan-ivy-read-unused-items ()
-  "Remove marked unused definitions."
+  "Read and operate on found unused definitions with ivy."
   (interactive)
   (require 'ivy)
-  (setq elisp-scan-unused-items (elisp-scan-if-yas-snipptes
-                                 (elisp-scan-remove-if-commands
-                                  (elisp-scan-find-all-unsused-defs))))
-  (let ((marked))
-    (ivy-read "Unused:\s" (elisp-scan-unused-trasnform-items
-                           elisp-scan-unused-items)
+  (let ((marked)
+        (items (elisp-scan-unused-trasnform-items
+                (elisp-scan-unused-in-file
+                 buffer-file-name
+                 (elisp-scan-get-files-to-check)))))
+    (ivy-read "Unused:\s" (if (yes-or-no-p "Include commands?")
+                              items
+                            (seq-remove
+                             (lambda (it) (equal (elisp-scan-get-prop it :type)
+                                            "interactive"))
+                             items))
               :action 'elisp-scan-jump-to-item
               :caller 'elisp-scan-ivy-read-unused-items
               :unwind 'elisp-scan-cleanup-overlay

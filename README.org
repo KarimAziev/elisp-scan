@@ -4,13 +4,62 @@ Find unused code in Emacs Lisp files.
 
 ** Requirements
 
-- Emacs Emacs 27.1
-- ag (v2.0.0+)
-- projectile
+- Emacs Emacs 26.1
 - ivy (optional)
+
+** Installation
+
+*** with straight-use-package
+
+Put the following in your init file:
+
+#+begin_src elisp
+ (use-package elisp-scan
+  :straight (elisp-scan
+             :type git
+             :host github
+             :repo "KarimAziev/elisp-scan")
+  :commands (elisp-scan-query-remove-unused
+             elisp-scan-all-unused-defs
+             elisp-scan-current-file
+             elisp-scan-ivy-read-unused-items))
+#+end_src
+
+*** Manual
+
+Or download repository and add it to your ~load-path~.
+
+#+begin_src elisp
+
+(add-to-list 'load-path "/path/to/elisp-scan/")
+
+(require 'elisp-scan)
+#+end_src
+
+
 
 ** Commands
 
-- ~elisp-scan-report~
-- ~elisp-scan-query-remove-unused~
-- ~elisp-scan-ivy-read-unused-items~
++ ~elisp-scan-current-file~
+Show unused items in the current file.
+
++ ~elisp-scan-all-unused-defs~
+Check every project file for unused definitions.
+
++ ~elisp-scan-query-remove-unused~
+Query remove unused definitions.
+
++ ~elisp-scan-ivy-read-unused-items~
+Read and operate on found unused definitions with ivy.
+
+** Customizations
+
++ ~elisp-scan-archive-dir~
+Where to write backup files.
+
++ ~elisp-scan-types-symbols~
+Symbols which should always be checked.
+
++ ~elisp-scan-permanent-dirs~
+In which directories always check usage.
+
