@@ -4,7 +4,7 @@ Find unused code in Emacs Lisp files.
 
 ** Requirements
 
-- Emacs Emacs 26.1
+- Emacs Emacs 27.1
 - ivy (optional)
 
 ** Installation
@@ -14,7 +14,7 @@ Find unused code in Emacs Lisp files.
 Put the following in your init file:
 
 #+begin_src elisp
- (use-package elisp-scan
+(use-package elisp-scan
   :straight (elisp-scan
              :type git
              :host github
@@ -22,7 +22,9 @@ Put the following in your init file:
   :commands (elisp-scan-query-remove-unused
              elisp-scan-all-unused-defs
              elisp-scan-current-file
-             elisp-scan-ivy-read-unused-items))
+             elisp-scan-ivy-read-unused-items)
+  :bind ((:map elisp-scan-ivy-map
+               ("C-c C-d" . elisp-scan-ivy-remove-item))))
 #+end_src
 
 *** Manual
@@ -37,7 +39,6 @@ Or download repository and add it to your ~load-path~.
 #+end_src
 
 
-
 ** Commands
 
 + ~elisp-scan-current-file~
@@ -50,7 +51,14 @@ Check every project file for unused definitions.
 Query remove unused definitions.
 
 + ~elisp-scan-ivy-read-unused-items~
-Read and operate on found unused definitions with ivy.
+Read unused definitions of current file with ~ivy.~
+To remove or backup batch of items, mark them.
+To remove one item without exiting minibuffer use ~C-c C-d~ or define new key for ~elisp-scan-ivy-remove-item~ in ~elisp-scan-ivy-map~, e.g.
+
+#+begin_src elisp
+(define-key elisp-scan-ivy-map (kbd "C-c C-d") 'elisp-scan-ivy-remove-item)
+#+end_src
+
 
 ** Customizations
 

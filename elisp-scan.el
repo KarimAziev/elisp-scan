@@ -1,11 +1,12 @@
-;;; elisp-scan.el --- Configure elisp scan -*- lexical-binding: t -*-
+;;; elisp-scan.el --- Configure scan -*- lexical-binding: t -*-
 
-;; Copyright © 2020-2022 Karim Aziiev <karim.aziiev@gmail.com>
+;; Copyright (C) 2022 Karim Aziiev <karim.aziiev@gmail.com>
 
 ;; Author: Karim Aziiev <karim.aziiev@gmail.com>
-;; Version: 0.1.0
-;; URL: https://github.com/KarimAziev/elisp-scan
-;; Package-Requires: ((emacs "26.1"))
+;; URL: https://github.com:KarimAziev/elisp-scan
+;; Keywords: lisp
+;; Version: 0.2.0
+;; Package-Requires: ((emacs "27.1"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -21,35 +22,40 @@
 ;;
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 ;;; Commentary:
 
-;; This is a tool for finding unused code in Emacs Lisp files.
+;; This file configures operations with scan
 
-;;; Commands
+;; Commands
 
-;;; M-x `elisp-scan-current-file'
-;;; Show unused items in the current file.
+;; M-x `elisp-scan-ivy-read-unused-items'
+;;      Read unused definitions of current file with ivy.
+;;      To remove or backup batch of items, mark them.
+;;      To remove one item without exiting minibuffer use `C-c C-d'
+;;      or define new key for `elisp-scan-ivy-remove-item' in `elisp-scan-ivy-map'.
 
-;;; M-x `elisp-scan-all-unused-defs'
-;;; Check every project file for unused definitions.
+;; M-x `elisp-scan-ivy-remove-item'
+;;      Remove current ivy item without exiting minibuffer.
 
-;;; M-x `elisp-scan-query-remove-unused'
-;;; Query remove unused definitions.
+;; M-x `elisp-scan-query-remove-unused'
+;;      Query remove unused definitions.
 
-;;; M-x `elisp-scan-ivy-read-unused-items'
-;;; Read and operate on found unused definitions with ivy.
+;; M-x `elisp-scan-all-unused-defs'
+;;      Check every project file for unused definitions.
 
-;;; Customizations
+;; M-x `elisp-scan-current-file'
+;;      Show unused items in the current file.
 
-;;; `elisp-scan-archive-dir'
-;;; Where to write backup files.
+;; Customization
 
-;;; `elisp-scan-types-symbols'
-;;; Symbols which should always be checked.
+;; `elisp-scan-permanent-dirs'
+;;      In which directories always check usage.
 
-;;; `elisp-scan-permanent-dirs'
-;;; In which directories always check usage.
+;; `elisp-scan-archive-dir'
+;;      Where to write backup files.
+
+;; `elisp-scan-types-symbols'
+;;      Symbols which should always be checked.
 
 ;;; Code:
 
@@ -227,9 +233,9 @@ For example (SYMBOL-NAME . defun)."
                    (id (nth 1 sexp)))
           (let* ((command (eq 'interactive
                               (when (memq def-type '(defun cl-defun))
-                                (if (stringp (nth 4 sexp))
-                                    (car (nth 5 sexp))
-                                  (car (nth 4 sexp))))))
+                                (if (stringp (nth 3 sexp))
+                                    (car (nth 4 sexp))
+                                  (car (nth 3 sexp))))))
                  (name (symbol-name id))
                  (re (elisp-scan-make-re name))
                  (item (when (null
@@ -602,17 +608,29 @@ what to do with it."
   "Run an action for BUTTON."
   (let ((current-window (selected-window))
         (item (get-text-property button 'item
-                                 (marker-buffer button))))
+                                 (marker-buffer button)))
+        (report-buffer (current-buffer)))
     (with-selected-window current-window
       (let ((buff (progn (find-file-noselect
                           (elisp-scan-get-prop item :file))
                          (get-file-buffer
                           (elisp-scan-get-prop item :file)))))
         (switch-to-buffer-other-window buff)
-        (with-current-buffer buff
-          (elisp-scan-remove-definition
-           (elisp-scan-get-prop item :id)
-           "Remove?"))))))
+        (when (with-current-buffer buff
+                (elisp-scan-remove-definition
+                 (elisp-scan-get-prop item :id)
+                 "Remove?"))
+          (when-let ((found (seq-find
+                             (lambda (it) (let ((id (car it)))
+                                       (equal id
+                                              (elisp-scan-get-prop item :id))))
+                             (buffer-local-value
+                              'tabulated-list-entries
+                              report-buffer))))
+            (with-current-buffer report-buffer
+              (setq tabulated-list-entries (delete found
+                                                   tabulated-list-entries))
+              (tabulated-list-revert))))))))
 
 (defun elisp-scan-report-convert (definition)
   "Return information about DEFINITION.
@@ -632,7 +650,7 @@ The information is formatted in a way suitable for
      (elisp-scan-get-prop definition :file)))))
 
 (defun elisp-scan-display-report (items)
-  "Show ITEMS Tabulated List buffer."
+  "Show ITEMS in Tabulated List buffer."
   (with-current-buffer (get-buffer-create "*elisp-scan statistics*")
     (setq tabulated-list-entries
           (mapcar 'elisp-scan-report-convert items))
@@ -651,12 +669,48 @@ Permanent projects defined in `elisp-scan-permanent-dirs'."
       (elisp-scan-find-files-in-projects projects)
     (elisp-scan-find-project-files)))
 
+(defun elisp-scan-find-unused-declarations ()
+  "Search for unused `declare-function'."
+  (let ((declare-re (concat "\\_<" "\\(" (regexp-opt
+                                          (list "declare-function")
+                                          t)
+                            "\\)"
+                            "\\_>"))
+        (unused))
+    (save-excursion
+      (goto-char (point-min))
+      (while (elisp-scan-re-search-forward declare-re nil t 1)
+        (when-let* ((sexp (save-excursion
+                            (elisp-scan-backward-up-list)
+                            (sexp-at-point)))
+                    (name (when (and
+                                 (listp sexp)
+                                 (eq (nth 0 sexp) 'declare-function)
+                                 (symbolp (nth 1 sexp)))
+                            (symbol-name (nth 1 sexp))))
+                    (re (elisp-scan-make-re name)))
+          (save-excursion
+            (when (elisp-scan-backward-up-list)
+              (unless (or (elisp-scan-re-search-backward re nil t 1)
+                          (progn (forward-sexp 1)
+                                 (elisp-scan-re-search-forward re nil t 1)))
+                (push name unused)))))))
+    unused))
+
 (defun elisp-scan-unused-in-file (file &optional files)
   "Check defined items in FILE are unused both in FILE and FILES.
 Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
-  (let ((alist (elisp-scan-with-temp-buffer
-                   (insert (elisp-scan-get-file-or-buffer-content file))
-                   (elisp-scan-top-level-maybe-unused-defs))))
+  (let ((alist)
+        (declarations))
+    (elisp-scan-with-temp-buffer
+        (insert (elisp-scan-get-file-or-buffer-content file))
+        (setq alist (elisp-scan-top-level-maybe-unused-defs))
+      (setq declarations
+            (mapcar
+             (lambda (d) (propertize
+                     d :id d :type "declare-function"
+                     :file file))
+             (elisp-scan-find-unused-declarations))))
     (let ((files (delete file files))
           (not-used (mapcar 'car alist)))
       (elisp-scan-with-temp-buffer
@@ -678,12 +732,13 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
                                    "^;;;###FILE:\\([^\n]+\\)" nil t 1)
                               (match-string-no-properties 1))))))
               (setq not-used (delete name not-used)))))
-      (mapcar
-       (lambda (name) (let ((it (assoc name alist)))
-                   (propertize
-                    (car it) :id (car it) :type (cdr it)
-                    :file file)))
-       not-used))))
+      (append declarations
+              (mapcar
+               (lambda (name) (let ((it (assoc name alist)))
+                           (propertize
+                            (car it) :id (car it) :type (cdr it)
+                            :file file)))
+               not-used)))))
 
 ;;;###autoload
 (defun elisp-scan-current-file ()
@@ -745,9 +800,44 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
                    (text-properties-at 0 it)))
           items))
 
+(defun elisp-scan-remove-item (item)
+	"Remove ITEM which is propertized string with :id property."
+  (elisp-scan-remove-definition
+   (elisp-scan-get-prop item :id)))
+
+(declare-function ivy-state-current "ivy")
+(declare-function ivy--kill-current-candidate "ivy")
+(defvar ivy-last)
+
+(defun elisp-scan-ivy-remove-item ()
+	"Remove current ivy item without exiting minibuffer."
+  (interactive)
+  (let ((item (ivy-state-current ivy-last)))
+    (let
+        ((save-selected-window--state
+          (internal--before-with-selected-window
+           (ivy--get-window ivy-last))))
+      (save-current-buffer
+        (unwind-protect
+            (progn
+              (select-window
+               (car save-selected-window--state)
+               'norecord)
+              (elisp-scan-remove-item item)
+              (ivy--kill-current-candidate))
+          (internal--after-with-selected-window
+           save-selected-window--state))))))
+
+(defvar elisp-scan-ivy-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-d") 'elisp-scan-ivy-remove-item)
+    map))
+
 ;;;###autoload
 (defun elisp-scan-ivy-read-unused-items ()
-  "Read and operate on found unused definitions with ivy."
+  "Read unused definitions of current file with ivy.
+To remove one item without exiting minibuffer \\<elisp-scan-ivy-map>\ use `\\[elisp-scan-ivy-remove-item]'.
+To remove or backup batch of items, mark them."
   (interactive)
   (require 'ivy)
   (let ((marked)
@@ -755,13 +845,11 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
                 (elisp-scan-unused-in-file
                  buffer-file-name
                  (elisp-scan-get-files-to-check)))))
-    (ivy-read "Unused:\s" (if (yes-or-no-p "Include commands?")
-                              items
-                            (seq-remove
-                             (lambda (it) (equal (elisp-scan-get-prop it :type)
-                                            "interactive"))
-                             items))
+    (ivy-read (substitute-command-keys
+               "\\<elisp-scan-ivy-map>\ Use `\\[elisp-scan-ivy-remove-item]' to remove ")
+              items
               :action 'elisp-scan-jump-to-item
+              :keymap elisp-scan-ivy-map
               :caller 'elisp-scan-ivy-read-unused-items
               :unwind 'elisp-scan-cleanup-overlay
               :multi-action (lambda (cands) (setq marked cands)))
