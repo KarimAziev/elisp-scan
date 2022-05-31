@@ -834,17 +834,19 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
     map))
 
 ;;;###autoload
-(defun elisp-scan-ivy-read-unused-items ()
+(defun elisp-scan-ivy-read-unused-items (&optional arg)
   "Read unused definitions of current file with ivy.
 To remove one item without exiting minibuffer \\<elisp-scan-ivy-map>\ use `\\[elisp-scan-ivy-remove-item]'.
-To remove or backup batch of items, mark them."
-  (interactive)
+To remove or backup batch of items, mark them.
+With optional prefix ARG include only current file."
+  (interactive "P")
   (require 'ivy)
   (let ((marked)
         (items (elisp-scan-unused-trasnform-items
                 (elisp-scan-unused-in-file
                  buffer-file-name
-                 (elisp-scan-get-files-to-check)))))
+                 (and (null arg)
+                      (elisp-scan-get-files-to-check))))))
     (ivy-read (substitute-command-keys
                "\\<elisp-scan-ivy-map>\ Use `\\[elisp-scan-ivy-remove-item]' to remove ")
               items
