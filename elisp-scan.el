@@ -268,8 +268,9 @@ return only elisp files."
 
 (defun elisp-scan-find-files-in-projects (directories)
   "Return all elisp files from project instances in DIRECTORIES."
-  (seq-reduce (lambda (acc dir) (append acc (elisp-scan-find-project-files dir t)))
-              directories '()))
+  (seq-remove 'file-directory-p
+              (seq-reduce (lambda (acc dir) (append acc (elisp-scan-find-project-files dir t)))
+                          directories '())))
 
 (defun elisp-scan-get-file-or-buffer-content (buffer-or-file)
   "Return a substring of BUFFER-OR-FILE without text properties.
@@ -763,12 +764,11 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
   "Check every project file for unused definitions."
   (interactive)
   (elisp-scan-display-report
-   (mapcar 'elisp-scan-report-convert
-           (if (yes-or-no-p "Include commands?")
-               (elisp-scan-if-yas-snipptes
-                (elisp-scan-find-all-unsused-defs))
-             (elisp-scan-remove-if-commands
-              (elisp-scan-find-all-unsused-defs))))))
+   (if (yes-or-no-p "Include commands?")
+       (elisp-scan-if-yas-snipptes
+        (elisp-scan-find-all-unsused-defs))
+     (elisp-scan-remove-if-commands
+      (elisp-scan-find-all-unsused-defs)))))
 
 ;;;###autoload
 (defun elisp-scan-query-remove-unused ()
