@@ -6,7 +6,7 @@
 ;; URL: https://github.com:KarimAziev/elisp-scan
 ;; Keywords: lisp
 ;; Version: 0.2.0
-;; Package-Requires: ((emacs "27.1"))
+;; Package-Requires: ((emacs "28.1"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -178,8 +178,8 @@ Arguments BOUND, NOERROR, COUNT has the same meaning as `re-search-forward'."
   "Return regexp for definitions from `elisp-scan-types-symbols'."
   (concat "\\("
           "[(]"
-          "\\(" (mapconcat 'regexp-quote
-                           (mapcar 'symbol-name elisp-scan-types-symbols)
+          "\\(" (mapconcat #'regexp-quote
+                           (mapcar #'symbol-name elisp-scan-types-symbols)
                            "\\|")
           "\\)"
           "[\s\t\n]"
@@ -260,16 +260,18 @@ return only elisp files."
          (files (project-files pr dirs)))
     (if no-filter
         (seq-remove
-         (apply-partially 'string-match-p "\\.elc\\|\\.gpg$")
+         (apply-partially #'string-match-p "\\.elc\\|\\.gpg$")
          files)
       (mapcar
        (lambda (file) (expand-file-name file pr))
-       (seq-filter (apply-partially 'string-match-p "\\.el$") files)))))
+       (seq-filter (apply-partially #'string-match-p "\\.el$") files)))))
 
 (defun elisp-scan-find-files-in-projects (directories)
   "Return all elisp files from project instances in DIRECTORIES."
-  (seq-remove 'file-directory-p
-              (seq-reduce (lambda (acc dir) (append acc (elisp-scan-find-project-files dir t)))
+  (seq-remove #'file-directory-p
+              (seq-reduce (lambda (acc dir) (append acc
+                                               (elisp-scan-find-project-files
+                                                dir t)))
                           directories '())))
 
 (defun elisp-scan-get-file-or-buffer-content (buffer-or-file)
@@ -393,7 +395,7 @@ ITEM should be a propertized string."
   "Return first filename with occurence of STRING in DIRECTORIES."
   (setq directories (delete nil (flatten-list directories)))
   (let ((founds)
-        (lisp-re (elisp-scan-make-re (regexp-quote string))))
+        (lisp-re (elisp-scan-make-re string)))
     (while (and (null founds) directories)
       (with-temp-buffer
         (let ((default-directory (pop directories)))
@@ -534,7 +536,7 @@ If CONFIRM passed also prompt user."
 As each match is found, the user must type a character saying
 what to do with it."
   (let ((grouped (flatten-list
-                  (mapcar 'cdr (elisp-scan-group-by :file items))))
+                  (mapcar #'cdr (elisp-scan-group-by :file items))))
         (exlcuded-files)
         (for-all)
         (answer)
@@ -654,7 +656,7 @@ The information is formatted in a way suitable for
   "Show ITEMS in Tabulated List buffer."
   (with-current-buffer (get-buffer-create "*elisp-scan statistics*")
     (setq tabulated-list-entries
-          (mapcar 'elisp-scan-report-convert items))
+          (mapcar #'elisp-scan-report-convert items))
     (elisp-scan-report-mode)
     (tabulated-list-print)
     (display-buffer (current-buffer))))
@@ -664,7 +666,7 @@ The information is formatted in a way suitable for
 Permanent projects defined in `elisp-scan-permanent-dirs'."
   (if-let* ((curr (project-current t default-directory))
             (projects
-             (seq-uniq (mapcar 'expand-file-name
+             (seq-uniq (mapcar #'expand-file-name
                                (append (cddr curr)
                                        elisp-scan-permanent-dirs)))))
       (elisp-scan-find-files-in-projects projects)
@@ -713,7 +715,7 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
                      :file file))
              (elisp-scan-find-unused-declarations))))
     (let ((files (delete file files))
-          (not-used (mapcar 'car alist)))
+          (not-used (mapcar #'car alist)))
       (elisp-scan-with-temp-buffer
           (insert
            (mapconcat (lambda (file)
@@ -786,7 +788,7 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
   "Annotate ITEMS."
   (mapcar (lambda (it)
             (setq it (format "%s" it))
-            (apply 'propertize
+            (apply #'propertize
                    (concat
                     (propertize
                      (capitalize
