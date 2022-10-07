@@ -515,7 +515,7 @@ If CONFIRM passed also prompt user."
                (file-name-base file)
              file)
            "~"
-           (format-time-string "%Y-%m-%d_%H%M%S")
+           (format-time-string "%F_%H%M%S")
            ".org")
    elisp-scan-archive-dir))
 
@@ -559,7 +559,8 @@ what to do with it."
               (if buffer-read-only
                   (push file exlcuded-files)
                 (when-let ((bounds (elisp-scan-find-item-bounds id)))
-                  (elisp-scan-highlight-bounds (car bounds) (cdr bounds))
+                  (elisp-scan-highlight-bounds (car bounds)
+                                               (cdr bounds))
                   (pop-to-buffer (current-buffer))
                   (unless for-all
                     (let ((c (if answer
@@ -569,34 +570,37 @@ what to do with it."
                                (elisp-scan-read-action
                                 "Remove:\s"))))
                       (if (member c '(?! ?r))
-                          (setq for-all (pcase c
-                                          (?! (setq for-all t))
-                                          (?r (setq for-all file))))
+                          (setq for-all
+                                (pcase c
+                                  (?! (setq for-all t))
+                                  (?r (setq for-all file))))
                         (setq answer c))))
                   (pcase answer
                     (?i (push file exlcuded-files))
                     (?y (elisp-scan-remove-definition id))
-                    (?b (let* ((backup
-                                (concat (format "\n* %s\n" id)
-                                        ":PROPERTIES:\n"
-                                        (format
-                                         "\n:ARCHIVE_TIME: %s\n"
-                                         (format-time-string
-                                          (substring
-                                           "<%Y-%m-%d %a %H:%M>" 1 -1)))
-                                        (format
-                                         ":ARCHIVE_FILE: %s\n"
-                                         (abbreviate-file-name file))
-                                        (format "#+name %s\n" id)
-                                        (format
-                                         "#+begin_src emacs-lisp\n%s\n#+end_src\n"
-                                         (buffer-substring-no-properties
-                                          (car bounds) (cdr bounds))))))
-                          (unless (file-exists-p
-                                   (file-name-directory new-file))
-                            (make-directory (file-name-directory new-file) t))
-                          (write-region backup nil new-file t)
-                          (elisp-scan-remove-definition id)))))))))))))
+                    (?b
+                     (let* ((backup
+                             (concat (format "\n* %s\n" id)
+                                     ":PROPERTIES:\n"
+                                     (format
+                                      "\n:ARCHIVE_TIME: %s\n"
+                                      (format-time-string
+                                       (substring
+                                        "<%F %a %H:%M>" 1 -1)))
+                                     (format
+                                      ":ARCHIVE_FILE: %s\n"
+                                      (abbreviate-file-name file))
+                                     (format "#+name %s\n" id)
+                                     (format
+                                      "#+begin_src emacs-lisp\n%s\n#+end_src\n"
+                                      (buffer-substring-no-properties
+                                       (car bounds)
+                                       (cdr bounds))))))
+                       (unless (file-exists-p
+                                (file-name-directory new-file))
+                         (make-directory (file-name-directory new-file) t))
+                       (write-region backup nil new-file t)
+                       (elisp-scan-remove-definition id)))))))))))))
 
 (define-derived-mode elisp-scan-report-mode tabulated-list-mode
   "Elisp Scan Report."
