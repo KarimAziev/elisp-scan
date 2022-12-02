@@ -62,11 +62,8 @@
 
 (require 'project)
 (declare-function ivy-read "ivy")
-(declare-function ivy--get-window "ivy")
 (declare-function ivy-state-current "ivy")
-(declare-function ivy-state-extra-props "ivy")
 (declare-function ivy-update-candidates "ivy")
-(declare-function ivy--update-minibuffer "ivy")
 (declare-function ivy--kill-current-candidate "ivy")
 (defcustom elisp-scan-types-symbols '(defun cl-defun defvar defconst defmacro
                                             defvar-local cl-defun cl-defmacro
@@ -867,7 +864,7 @@ To remove one item without exiting minibuffer \\<elisp-scan-ivy-map>\ use `\\[el
 To remove or backup batch of items, mark them.
 With optional prefix ARG include only current file."
   (interactive "P")
-  (require 'ivy)
+  (require 'ivy nil t)
   (let ((marked))
     (ivy-read
      (substitute-command-keys
