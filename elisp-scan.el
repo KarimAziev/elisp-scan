@@ -865,14 +865,15 @@ To remove or backup batch of items, mark them.
 With optional prefix ARG include only current file."
   (interactive "P")
   (require 'ivy nil t)
-  (let ((marked))
+  (let ((marked)
+        (file buffer-file-name))
     (ivy-read
      (substitute-command-keys
       "\\<elisp-scan-ivy-map>\ Use `\\[elisp-scan-ivy-remove-item]' to remove ")
      (lambda (&rest _args)
        (elisp-scan-unused-trasnform-items
         (elisp-scan-unused-in-file
-         buffer-file-name
+         file
          (and (null arg)
               (elisp-scan-get-files-to-check)))))
      :action 'elisp-scan-jump-to-item
