@@ -304,10 +304,11 @@ BUFFER-OR-FILE can be a buffer or file."
   (elisp-scan-with-temp-buffer
       (let ((founds))
         (dolist (file files)
-          (erase-buffer)
-          (insert-file-contents file)
-          (when-let ((sexps (elisp-scan-top-level-lists)))
-            (push (cons file sexps) founds)))
+          (when (file-exists-p file)
+            (erase-buffer)
+            (insert-file-contents file)
+            (when-let ((sexps (elisp-scan-top-level-lists)))
+              (push (cons file sexps) founds))))
         founds)))
 
 (defun elisp-scan-make-overlay (beg end props)
