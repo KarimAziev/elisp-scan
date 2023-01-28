@@ -79,6 +79,7 @@
   :type 'file
   :group 'elisp-scan)
 
+
 (defcustom elisp-scan-permanent-dirs `(,user-emacs-directory)
   "In which directories always check usage."
   :type '(repeat directory)
@@ -527,14 +528,16 @@ If CONFIRM passed also prompt user."
 
 (defun elisp-scan-make-backup-file-name (file)
   "Generate backup filename for FILE."
-  (expand-file-name
-   (concat (if (file-name-absolute-p file)
-               (file-name-base file)
-             file)
-           "~"
-           (format-time-string "%F_%H%M%S")
-           ".org")
-   elisp-scan-archive-dir))
+  (if (file-directory-p elisp-scan-archive-dir)
+      (expand-file-name
+       (concat (if (file-name-absolute-p file)
+                   (file-name-base file)
+                 file)
+               "~"
+               (format-time-string "%F_%H%M%S")
+               ".org")
+       elisp-scan-archive-dir)
+    elisp-scan-archive-dir))
 
 (defun elisp-scan-read-action (prompt &optional extra)
   "Ask user to select an entry from choices and EXTRA promting with PROMPT."
@@ -600,14 +603,15 @@ what to do with it."
                              (concat (format "\n* %s\n" id)
                                      ":PROPERTIES:\n"
                                      (format
-                                      "\n:ARCHIVE_TIME: %s\n"
+                                      ":ARCHIVE_TIME: %s\n"
                                       (format-time-string
                                        (substring
                                         "<%F %a %H:%M>" 1 -1)))
                                      (format
                                       ":ARCHIVE_FILE: %s\n"
                                       (abbreviate-file-name file))
-                                     (format "#+name %s\n" id)
+                                     ":END:\n"
+                                     (format "#+name: %s\n" id)
                                      (format
                                       "#+begin_src emacs-lisp\n%s\n#+end_src\n"
                                       (buffer-substring-no-properties
