@@ -6,7 +6,7 @@
 ;; URL: https://github.com/KarimAziev/elisp-scan
 ;; Keywords: lisp
 ;; Version: 0.2.0
-;; Package-Requires: ((emacs "28.1") (project "0.8.3"))
+;; Package-Requires: ((emacs "28.1") (project "0.9.4"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -65,8 +65,13 @@
 (declare-function ivy-state-current "ivy")
 (declare-function ivy-update-candidates "ivy")
 (declare-function ivy--kill-current-candidate "ivy")
+
 (defcustom elisp-scan-types-symbols '(defun cl-defun defvar defconst defmacro
                                             defvar-local cl-defun cl-defmacro
+                                            transient-define-suffix
+                                            transient-define-argument
+                                            transient-define-prefix
+                                            transient-define-infix
                                             defun-ivy+)
   "Symbols which should always be checked."
   :type '(repeat symbol)
