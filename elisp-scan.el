@@ -529,7 +529,8 @@ If CONFIRM passed also prompt user."
             (while (looking-at "^\n[\n]")
               (forward-line 1))
             (while (looking-back "^\n[\n]+" 0)
-              (join-line))))))))
+              (join-line))
+            (save-buffer)))))))
 
 (defun elisp-scan-make-backup-file-name (file)
   "Generate backup filename for FILE."
@@ -627,6 +628,12 @@ what to do with it."
                          (make-directory (file-name-directory new-file) t))
                        (write-region backup nil new-file t)
                        (elisp-scan-remove-definition id)))))))))))))
+(defvar elisp-scan-report-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map tabulated-list-mode-map)
+    (define-key map (kbd "g") #'elisp-scan-render-file-report)
+    map)
+  "Keymap used in tabulated gists views.")
 
 (define-derived-mode elisp-scan-report-mode tabulated-list-mode
   "Elisp Scan Report."
@@ -635,7 +642,8 @@ what to do with it."
         [("Name" 30 t)
          ("Type" 30 t)
          ("File" 30)])
-  (tabulated-list-init-header))
+  (tabulated-list-init-header)
+  (use-local-map elisp-scan-report-mode-map))
 
 (defun elisp-scan-button-action (button)
   "Run an action for BUTTON."
@@ -662,9 +670,7 @@ what to do with it."
                               'tabulated-list-entries
                               report-buffer))))
             (with-current-buffer report-buffer
-              (setq tabulated-list-entries (delete found
-                                                   tabulated-list-entries))
-              (tabulated-list-revert))))))))
+              (elisp-scan-render-file-report))))))))
 
 (defun elisp-scan-report-convert (definition)
   "Return information about DEFINITION.
@@ -691,6 +697,47 @@ The information is formatted in a way suitable for
     (elisp-scan-report-mode)
     (tabulated-list-print)
     (display-buffer (current-buffer))))
+
+(defvar-local elisp-scan-related-files nil)
+(defvar-local elisp-scan-report-file nil)
+(defun elisp-scan-render-file-report ()
+  (interactive)
+  (let* ((buff (current-buffer))
+         (items (when (and elisp-scan-report-file
+                           elisp-scan-related-files)
+                  (elisp-scan-unused-in-file
+                   elisp-scan-report-file
+                   elisp-scan-related-files))))
+    (with-current-buffer buff
+      (setq tabulated-list-entries
+            (mapcar #'elisp-scan-report-convert items))
+      (tabulated-list-print))))
+
+(defun elisp-scan-display-file-report (file)
+  "Check unused items in FILE and show report."
+  (let* ((buff-name (format "*elisp-scan-%s*" file))
+         (buff (get-buffer buff-name))
+         (files (or (when (buffer-live-p buff)
+                      (buffer-local-value
+                       'elisp-scan-related-files buff))
+                    (if (and elisp-scan-permanent-dirs
+                             (yes-or-no-p
+                              (format "Include %s?"
+                                      (string-join
+                                       elisp-scan-permanent-dirs
+                                       "\s"))))
+                        (elisp-scan-get-files-to-check)
+                      (elisp-scan-find-project-files)))))
+    (with-current-buffer (get-buffer-create buff-name)
+      (unless (derived-mode-p 'elisp-scan-report-mode)
+        (elisp-scan-report-mode)
+        (add-hook 'tabulated-list-revert-hook
+                  #'elisp-scan-render-file-report nil t))
+      (setq elisp-scan-report-file file)
+      (setq elisp-scan-related-files files)
+      (elisp-scan-render-file-report)
+      (unless (get-buffer-window (current-buffer))
+        (display-buffer (current-buffer))))))
 
 (defun elisp-scan-get-files-to-check ()
   "Return files from current project and permanent projects.
@@ -785,19 +832,8 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
 (defun elisp-scan-current-file ()
   "Show unused items in the current file."
   (interactive)
-  (let* ((file buffer-file-name)
-         (files (if (and elisp-scan-permanent-dirs
-                         (yes-or-no-p
-                          (format "Include %s?"
-                                  (string-join
-                                   elisp-scan-permanent-dirs
-                                   "\s"))))
-                    (elisp-scan-get-files-to-check)
-                  (elisp-scan-find-project-files)))
-         (items (elisp-scan-unused-in-file
-                 file
-                 files)))
-    (elisp-scan-display-report items)))
+  (elisp-scan-display-file-report (or buffer-file-name
+                                      (read-file-name "File"))))
 
 ;;;###autoload
 (defun elisp-scan-all-unused-defs ()
