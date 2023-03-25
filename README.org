@@ -37,28 +37,22 @@ Or download repository and add it to your ~load-path~.
 
 (require 'elisp-scan)
 #+end_src
+** Usage
 
-
-** Commands
+The simplest usage is to invoke transient popup ~M-x elisp-scan-transient~ with next commands:
 
 + ~elisp-scan-current-file~
 Show unused items in the current file.
-
++ ~elisp-scan-report-project-refs~
+Scan project files for symbols, used in other files and print report.
++ ~elisp-scan-find-file-dependents~  (file)
+Scan =file= for symbols, used in other files and print report.
++ ~elisp-scan-ivy-read-unused-items~  (&optional arg)
+Read unused definitions of current file with ivy. To remove one item without exiting minibuffer use =C-c C-d=. To remove or backup batch of items, mark them. With optional prefix =arg= include only current file.
++ ~elisp-scan-query-remove-unused~
+Remove or backup unused definitions.
 + ~elisp-scan-all-unused-defs~
 Check every project file for unused definitions.
-
-+ ~elisp-scan-query-remove-unused~
-Query remove unused definitions.
-
-+ ~elisp-scan-ivy-read-unused-items~
-Read unused definitions of current file with ~ivy.~
-To remove or backup batch of items, mark them.
-To remove one item without exiting minibuffer use ~C-c C-d~ or define new key for ~elisp-scan-ivy-remove-item~ in ~elisp-scan-ivy-map~, e.g.
-
-#+begin_src elisp
-(define-key elisp-scan-ivy-map (kbd "C-c C-d") 'elisp-scan-ivy-remove-item)
-#+end_src
-
 
 ** Customizations
 

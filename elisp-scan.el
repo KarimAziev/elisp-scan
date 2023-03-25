@@ -6,7 +6,7 @@
 ;; URL: https://github.com/KarimAziev/elisp-scan
 ;; Keywords: lisp
 ;; Version: 0.2.0
-;; Package-Requires: ((emacs "28.1") (project "0.9.4"))
+;; Package-Requires: ((emacs "28.1"))
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -29,11 +29,23 @@
 
 ;; Commands
 
-;; M-x `elisp-scan-ivy-read-unused-items'
+
+;;; Commands
+
+;; M-x `elisp-scan-report-project-refs'
+;;      Scan project files for symbols, used in other files and print report.
+
+;; M-x `elisp-scan-find-file-dependents' (file)
+;;      Scan FILE for symbols, used in other files and print report.
+
+;; M-x `elisp-scan-cancel-timer'
+;;      Render symbols in FILE which is used in other files to BUFFER.
+
+;; M-x `elisp-scan-ivy-read-unused-items' (&optional arg)
 ;;      Read unused definitions of current file with ivy.
+;;      To remove one item without exiting minibuffer \<elisp-scan-ivy-map>use `\[elisp-scan-ivy-remove-item]'.
 ;;      To remove or backup batch of items, mark them.
-;;      To remove one item without exiting minibuffer use `C-c C-d'
-;;      or define new key for `elisp-scan-ivy-remove-item' in `elisp-scan-ivy-map'.
+;;      With optional prefix ARG include only current file.
 
 ;; M-x `elisp-scan-ivy-remove-item'
 ;;      Remove current ivy item without exiting minibuffer.
@@ -47,7 +59,13 @@
 ;; M-x `elisp-scan-current-file'
 ;;      Show unused items in the current file.
 
-;; Customization
+;; M-x `elisp-scan-render-file-report'
+;;      Render file report.
+
+;; M-x `elisp-scan-jump'
+;;      Return list of filtered TYPES.
+
+;;; Customization
 
 ;; `elisp-scan-permanent-dirs'
 ;;      In which directories always check usage.
@@ -61,6 +79,7 @@
 ;;; Code:
 
 (require 'project)
+(require 'transient)
 (declare-function ivy-read "ivy")
 (declare-function ivy-state-current "ivy")
 (declare-function ivy-update-candidates "ivy")
@@ -84,7 +103,6 @@
   :type 'file
   :group 'elisp-scan)
 
-
 (defcustom elisp-scan-permanent-dirs `(,user-emacs-directory)
   "In which directories always check usage."
   :type '(repeat directory)
@@ -100,6 +118,19 @@
        (emacs-lisp-mode)
        (progn
          ,@body))))
+
+(defmacro elisp-scan-with-every-top-form (&rest body)
+  "Bind VARS and eval BODY in current buffer on every top level form."
+  (declare (indent 1)
+           (debug t))
+  `(save-excursion
+     (save-restriction
+       (widen)
+       (goto-char (point-max))
+       (while (and (elisp-scan-backward-list)
+                   (looking-at "[(]"))
+         (save-excursion
+           ,@body)))))
 
 (defun elisp-scan-re-search-forward-inner (regexp &optional bound count)
   "This function is helper for `elisp-scan-re-search-forward'.
@@ -231,36 +262,73 @@ outside of any parentheses, comments, or strings encountered in the scan."
         (push sexp sexps)))
     sexps))
 
+(defun elisp-scan-buffer-filter-types ()
+  "Return list of filtered TYPES."
+  (seq-filter (lambda (it)
+                (memq (car it) elisp-scan-types-symbols))
+              (elisp-scan-buffer)))
+
 ;;;###autoload
-(defun elisp-scan-top-level-maybe-unused-defs ()
-  "Return alist with defined top level items which is unused in current buffer.
-For example (SYMBOL-NAME . defun)."
-  (let ((sexps))
-    (goto-char (point-max))
-    (while (elisp-scan-backward-list)
-      (when-let ((sexp (unless (nth 4 (syntax-ppss (point)))
-                         (list-at-point))))
-        (when-let ((def-type (car (memq (nth 0 sexp) elisp-scan-types-symbols)))
-                   (id (nth 1 sexp)))
-          (let* ((command (eq 'interactive
-                              (when (memq def-type '(defun cl-defun))
-                                (if (stringp (nth 3 sexp))
-                                    (car (nth 4 sexp))
-                                  (car (nth 3 sexp))))))
-                 (name (symbol-name id))
-                 (re (elisp-scan-make-re name))
-                 (item (when (null
-                              (or
-                               (save-excursion
-                                 (elisp-scan-re-search-backward re nil t 1))
-                               (save-excursion
-                                 (forward-sexp 1)
-                                 (elisp-scan-re-search-forward re nil t 1))))
-                         (cons name (symbol-name (if command 'interactive
-                                                   def-type))))))
-            (when item
-              (push item sexps))))))
-    sexps))
+(defun elisp-scan-jump ()
+  "Scan buffer and jump to item."
+  (interactive)
+  (let* ((items (elisp-scan-buffer))
+         (alist (mapcar (lambda (it)
+                          (cons (format "%s %s" (car it)
+                                        (nth 1 it))
+                                it))
+                        items))
+         (choice (cdr (assoc (completing-read "Item" alist) alist))))
+    (elisp-scan-buffer-jump-to-form (car choice)
+                                    (nth 1 choice))))
+
+(defun elisp-scan-buffer-jump-to-form (type name)
+  "Search for definition with TYPE and NAME."
+  (let ((re (elisp-scan-make-re (symbol-name name)))
+        (found))
+    (save-excursion
+      (goto-char (point-max))
+      (while (and (not found)
+                  (elisp-scan-re-search-backward re nil t))
+        (let ((parse-sexp-ignore-comments t))
+          (setq found (ignore-errors (forward-sexp -1)
+                                     (when (eq type (symbol-at-point))
+                                       (backward-up-list 1)
+                                       (when-let ((sexp
+                                                   (sexp-at-point)))
+                                         (when (and (eq (car-safe sexp)
+                                                        type)
+                                                    (eq (nth 1 sexp)
+                                                        name))
+                                           (point)))))))))
+    (when found
+      (goto-char found)
+      found)))
+
+(defun elisp-scan-buffer-filter-get-unused-in-buffer ()
+  "Return list of filtered TYPES."
+  (let ((items (elisp-scan-buffer))
+        (unused))
+    (dolist (l items)
+      (let ((type (car-safe l))
+            (symb (nth 1 l)))
+        (when (memq type elisp-scan-types-symbols)
+          (when (elisp-scan-buffer-jump-to-form type symb)
+            (let* ((name (symbol-name symb))
+                   (re (elisp-scan-make-re (symbol-name symb)))
+                   (used (or
+                          (save-excursion
+                            (elisp-scan-re-search-backward re nil t 1))
+                          (save-excursion
+                            (forward-sexp 1)
+                            (elisp-scan-re-search-forward re nil t 1)))))
+              (unless used
+                (push (cons name (if (memq :interactive l)
+                                     "interactive"
+                                   (symbol-name type)))
+                      unused)))))))
+    unused))
+
 
 (defun elisp-scan-find-project-files (&optional directory no-filter)
   "Return all elisp files from project instance in DIRECTORY.
@@ -290,7 +358,7 @@ return only elisp files."
                           directories '())))
 
 (defun elisp-scan-get-file-or-buffer-content (buffer-or-file)
-  "Return a substring of BUFFER-OR-FILE without text properties.
+  "Return a sub string of BUFFER-OR-FILE without text properties.
 BUFFER-OR-FILE can be a buffer or file."
   (with-temp-buffer
     (let ((inhibit-read-only t))
@@ -328,6 +396,7 @@ BUFFER-OR-FILE can be a buffer or file."
     overlay))
 
 (defvar elisp-scan-overlay nil)
+
 (defun elisp-scan-highlight-bounds (start end)
   "Highlight region between START and END with FACE."
   (elisp-scan-cleanup-overlay)
@@ -370,7 +439,7 @@ ITEM should be a propertized string."
     (buffer-substring-no-properties start (1- (point)))))
 
 (defun elisp-scan-find-all-unsused-defs-0 ()
-  "Find all unsused defs in current buffer."
+  "Find all unused definitions in current buffer."
   (let ((unused)
         (regexp (elisp-scan-types-re)))
     (goto-char (point-min))
@@ -396,8 +465,8 @@ ITEM should be a propertized string."
                     unused))))))
     unused))
 
-(defun elisp-scan-find-all-unsused-defs ()
-  "Return unsused defs in project files."
+(defun elisp-scan-find-all-unused-defs ()
+  "Return unused definitions in project files."
   (elisp-scan-with-temp-buffer
       (insert (prin1-to-string
                (elisp-scan-lists-in-files
@@ -411,7 +480,7 @@ ITEM should be a propertized string."
               unused))
 
 (defun elisp-scan-check-used-in-dirs-p (string &rest directories)
-  "Return first filename with occurence of STRING in DIRECTORIES."
+  "Return first filename with occurrence of STRING in DIRECTORIES."
   (setq directories (delete nil (flatten-list directories)))
   (let ((founds)
         (lisp-re (elisp-scan-make-re string)))
@@ -438,7 +507,7 @@ ITEM should be a propertized string."
     founds))
 
 (defun elisp-scan-if-yas-snipptes (unused)
-  "Remove occurences from yas snippet directory from UNUSED."
+  "Check whether UNUSED is used in snippet files."
   (when (executable-find "ag")
     (require 'yasnippet nil t)
     (if-let ((dirs (when (fboundp 'yas-snippet-dirs)
@@ -465,8 +534,9 @@ ITEM should be a propertized string."
               items '()))
 
 (defvar elisp-scan-unused-items nil)
+
 (defun elisp-scan-highlight-confirm (&optional start end prompt)
-  "Highlight region beetwen START and END with PROPS and ask PROMPT."
+  "Highlight region between START and END with PROPS and ask PROMPT."
   (let ((last-overlay)
         (bounds (or (and start end
                          (cons start end))
@@ -546,7 +616,7 @@ If CONFIRM passed also prompt user."
     elisp-scan-archive-dir))
 
 (defun elisp-scan-read-action (prompt &optional extra)
-  "Ask user to select an entry from choices and EXTRA promting with PROMPT."
+  "Ask user to select an entry from choices and EXTRA prompting with PROMPT."
   (car
    (read-multiple-choice
     prompt
@@ -628,12 +698,13 @@ what to do with it."
                          (make-directory (file-name-directory new-file) t))
                        (write-region backup nil new-file t)
                        (elisp-scan-remove-definition id)))))))))))))
+
 (defvar elisp-scan-report-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map tabulated-list-mode-map)
     (define-key map (kbd "g") #'elisp-scan-render-file-report)
     map)
-  "Keymap used in tabulated gists views.")
+  "Keymap used in tabulated views.")
 
 (define-derived-mode elisp-scan-report-mode tabulated-list-mode
   "Elisp Scan Report."
@@ -700,7 +771,10 @@ The information is formatted in a way suitable for
 
 (defvar-local elisp-scan-related-files nil)
 (defvar-local elisp-scan-report-file nil)
+
+;;;###autoload
 (defun elisp-scan-render-file-report ()
+  "Render file report."
   (interactive)
   (let* ((buff (current-buffer))
          (items (when (and elisp-scan-report-file
@@ -786,7 +860,7 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
         (declarations))
     (elisp-scan-with-temp-buffer
         (insert (elisp-scan-get-file-or-buffer-content file))
-        (setq alist (elisp-scan-top-level-maybe-unused-defs))
+        (setq alist (elisp-scan-buffer-filter-get-unused-in-buffer))
       (setq declarations
             (mapcar
              (lambda (d)
@@ -828,6 +902,7 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
                     :file file)))
                not-used)))))
 
+
 ;;;###autoload
 (defun elisp-scan-current-file ()
   "Show unused items in the current file."
@@ -842,9 +917,9 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
   (elisp-scan-display-report
    (if (yes-or-no-p "Include commands?")
        (elisp-scan-if-yas-snipptes
-        (elisp-scan-find-all-unsused-defs))
+        (elisp-scan-find-all-unused-defs))
      (elisp-scan-remove-if-commands
-      (elisp-scan-find-all-unsused-defs)))))
+      (elisp-scan-find-all-unused-defs)))))
 
 ;;;###autoload
 (defun elisp-scan-query-remove-unused ()
@@ -853,7 +928,7 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
   (save-some-buffers)
   (setq elisp-scan-unused-items (elisp-scan-if-yas-snipptes
                                  (elisp-scan-remove-if-commands
-                                  (elisp-scan-find-all-unsused-defs))))
+                                  (elisp-scan-find-all-unused-defs))))
   (unwind-protect
       (elisp-scan-remove-unused elisp-scan-unused-items)
     (elisp-scan-cleanup-overlay)))
@@ -931,6 +1006,622 @@ With optional prefix ARG include only current file."
                      (setq marked cands)))
     (elisp-scan-cleanup-overlay)
     (elisp-scan-remove-unused marked)))
+
+(defvar-local elisp-scan-timer nil)
+(defvar-local elisp-scan-files nil)
+(defvar-local elisp-scan-files-total nil)
+
+(defun elisp-scan-intern-cars (alist)
+  "Intern cars in ALIST."
+  (mapcar
+   (lambda (it)
+     (setcar it (intern-soft
+                 (car it)))
+     it)
+   alist))
+
+
+(defun elisp-scan-find-refs-filter-lines (str lines)
+  "Return LINES with exact matches of STR."
+  (let ((lisp-re (elisp-scan-make-re str)))
+    (delete nil
+            (seq-filter (apply-partially #'string-match-p lisp-re)
+                        lines))))
+
+(defun elisp-scan-rename-parse-line (line-string)
+  "Parse LINE-STRING from ag or find output to plist."
+  (let* ((line-pos (string-match-p ":[0-9]+:" line-string))
+         (file (substring-no-properties line-string 0 line-pos))
+         (rest (split-string (substring-no-properties line-string line-pos) ":"
+                             t))
+         (line (pop rest))
+         (txt (string-join rest ":")))
+    (list
+     :text txt
+     :rest txt
+     :file file
+     :line
+     (string-to-number line))))
+
+(defvar elisp-scan-export-types
+  (mapcar #'intern '("provide")))
+
+(defvar elisp-scan-modes-types
+  (elisp-scan-intern-cars '(("define-minor-mode" . 2)
+                         ("define-derived-mode" . 4)
+                         ("define-generic-mode" . 8)
+                         ("define-compilation-mode" .
+                          3)
+                         ("easy-mmode-define-minor-mode"
+                          . 2))) )
+
+
+(defvar elisp-scan-interactive-types
+  (elisp-scan-intern-cars
+   '(("defun" . 3)
+     ("defsubst" . 3)
+     ("cl-defun" . 3)
+     ("cl-defsubst" . 3))))
+
+(defvar elisp-scan-non-defun-command-types
+  (elisp-scan-intern-cars
+   '(("defhydra" . 3)
+     ("transient-define-prefix" . 3))))
+
+(defvar elisp-scan-func-types
+  (elisp-scan-intern-cars
+   '(("defun" . 3)
+     ("defmacro" . 3)
+     ("defsubst" . 3)
+     ("defalias" . 4)
+     ("defhydra" . 3)
+     ("transient-define-prefix" . 3)
+     ("transient-define-suffix" . 3)
+     ("transient-define-argument" . 3)
+     ("transient-define-infix" . 3)
+     ("cl-defun" . 3)
+     ("cl-defsubst" . 3)
+     ("cl-defmacro" . 3)
+     ("cl-defgeneric" . 3)
+     ("cl-defmethod" . 3))))
+
+(defvar elisp-scan-var-types (elisp-scan-intern-cars
+                           '(("defvar" . 3)
+                             ("defconst" . 3)
+                             ("defvar-local" . 3))))
+
+(defvar elisp-scan-custom-types (elisp-scan-intern-cars
+                              '(("defface" . 3)
+                                ("defcustom" . 3)
+                                ("defgroup" . 3)
+                                ("deftheme" . 3)))
+  "Doc.")
+
+(defvar elisp-scan-def-type-poses
+  (append
+   (elisp-scan-intern-cars
+    '(("define-skeleton" . 2)
+      ("ert-deftest" . 3)
+      ("define-widget" . 3)
+      ("easy-mmode-define-minor-mode"
+       . 2)
+      ("defclass" . 4)
+      ("cl-defstruct" . 3)))
+   elisp-scan-var-types
+   elisp-scan-custom-types
+   elisp-scan-func-types
+   elisp-scan-modes-types))
+
+(defun elisp-scan-sexp-declare-p (sexp)
+  "Return non-nil if SEXP is declared form."
+  (pcase sexp
+    (`(defvar ,name)
+     (list :declared-variable name))
+    (`(declare-function ,name)
+     (list :declare-function name))
+    (`(declare-function ,name
+                        ,_file)
+     (list :declare-function name))
+    (`(declare-function ,name
+                        ,_file
+                        ,_args)
+     (list :declare-function name))
+    (`(declare-function ,name ,_file ,_args ,_fileonly)
+     (list :declare-function name))))
+
+(defun elisp-scan-get-doc-from-sexp (sexp)
+  "Return documentation from SEXP."
+  (when (proper-list-p sexp)
+    (let* ((type (car-safe sexp))
+           (pos (and type
+                     (cdr
+                      (assq type elisp-scan-def-type-poses)))))
+      (pcase type
+        ('defvar-keymap (plist-get sexp :doc))
+        ((guard (and pos
+                     (eq type 'cl-defmethod)
+                     (memq (nth 2 sexp) '(:around :after
+                                                  :before))))
+         (let ((value (nth (1+ pos) sexp)))
+           (when (stringp value)
+             value)))
+        ((guard (and pos))
+         (let ((value (nth pos sexp)))
+           (when (stringp value)
+             value)))))))
+
+(defun elisp-scan-list-at-point ()
+  "Return list at point."
+  (when-let ((sexp (sexp-at-point)))
+    (when (proper-list-p sexp)
+      sexp)))
+
+(defun elisp-scan-unquote (exp)
+  "Return EXP unquoted."
+  (declare (pure t)
+           (side-effect-free t))
+  (while (memq (car-safe exp) '(quote function))
+    (setq exp (cadr exp)))
+  exp)
+
+
+(defun elisp-scan-parse-at-point ()
+  "Parse `sexp-at-point' at point."
+  (let* ((item (elisp-scan-list-at-point))
+         (type (car-safe item)))
+    (when (and type
+               (symbolp type)
+               (not (nth 4 (syntax-ppss (point)))))
+      (let ((doc (elisp-scan-get-doc-from-sexp item))
+            (declaration (elisp-scan-sexp-declare-p item)))
+        (pcase type
+          ((guard declaration)
+           (list declaration))
+          ((or 'use-package 'use-package!)
+           (let ((data (save-excursion
+                         (elisp-scan-parse-sexp-from-backward)))
+                 (v `(use-package ,(nth 1 item))))
+             (if data
+                 (push v data)
+               (list v))))
+          ((or 'with-eval-after-load 'eval-when-compile
+               'eval-after-load
+               'straight-use-package 'if 'progn
+               'and
+               'if-let 'when-let 'with-no-warnings
+               'when 'unless 'eval-and-compile)
+           (save-excursion
+             (elisp-scan-parse-sexp-from-backward)))
+          ((or 'setq 'setq-default)
+           (remove nil (seq-map-indexed (lambda (v i)
+                                          (if (eq (logand i 1) 0)
+                                              (list type v)
+                                            nil))
+                                        (seq-drop item 1))))
+          ((or 'require 'provide)
+           (list (append (list (car-safe item)
+                               (elisp-scan-unquote (nth 1 item)))
+                         (seq-drop item 2))))
+          ((guard
+            (and (assq type elisp-scan-interactive-types)
+                 (eq 'interactive (if doc
+                                      (car-safe
+                                       (car-safe
+                                        (cdr-safe
+                                         (member doc
+                                                 item))))
+                                    (nth
+                                     (cdr
+                                      (assq type
+                                            elisp-scan-interactive-types))
+                                     item)))))
+           (list (list (car item)
+                       (cadr item)
+                       (caddr item)
+                       :interactive
+                       doc)))
+          ((guard
+            (assq type elisp-scan-non-defun-command-types))
+           (list (append
+                  (seq-take item (cdr
+                                  (assq type
+                                        elisp-scan-non-defun-command-types)))
+                  (list :interactive))))
+          ((guard (assq type (append
+                              elisp-scan-custom-types
+                              elisp-scan-var-types)))
+           (let* ((i (cdr (assq type (append elisp-scan-custom-types
+                                             elisp-scan-var-types))))
+                  (value (seq-take item (1- i))))
+             (list (nconc value (list doc)))))
+          ((guard (assq type elisp-scan-def-type-poses))
+           (let ((value
+                  (seq-take item (cdr (assq type elisp-scan-def-type-poses)))))
+             (list (nconc value (list doc)))))
+          ((or 'add-hook 'remove-hook)
+           (list item))
+          ((guard (and (or (special-form-p type)
+                           (macrop type))
+                       (listp (cdr item))))
+           (list (seq-take item 2))))))))
+
+(defun elisp-scan-parse-sexp-from-backward ()
+  "Scan sexp at point from backward."
+  (forward-sexp 1)
+  (backward-char 1)
+  (elisp-scan-parse-backward))
+
+(defun elisp-scan-parse-backward ()
+  "Recursively scan backward forms."
+  (let ((items))
+    (while (and (elisp-scan-backward-list)
+                (looking-at "[(]"))
+      (setq items (nconc items (elisp-scan-parse-at-point))))
+    items))
+
+(defun elisp-scan-buffer ()
+  "Scan current buffer."
+  (let ((items))
+    (elisp-scan-with-every-top-form
+     (setq items (nconc items (elisp-scan-parse-at-point))))
+    (nreverse items)))
+
+
+(defun elisp-scan-pad-right (str limit)
+  "Pad STR with spaces on the right to increase the length to LIMIT."
+  (let ((width (string-width str)))
+    (if (<= width limit)
+        str
+      (truncate-string-to-width str limit nil nil t t))))
+
+(defun elisp-scan-buffer-group ()
+  "Scan current buffer."
+  (elisp-scan-group-with 'car (elisp-scan-buffer)
+                         (lambda (it)
+                           (elisp-scan-unquote (cadr it)))))
+
+(defun elisp-scan-group-with (fn items &optional transform-fn)
+  "Group ITEMS by calling FN with every item.
+FN should return key.
+TRANSFORM-FN should return transformed item."
+  (seq-reduce (lambda (acc it)
+                (let* ((key (funcall fn it))
+                       (val (if transform-fn (funcall transform-fn it) it))
+                       (cell (assoc key acc))
+                       (group (if cell
+                                  (append (cdr cell)
+                                          (list val))
+                                (list val))))
+                  (if cell
+                      (setcdr cell group)
+                    (push (cons key group) acc))
+                  acc))
+              (seq-copy items) '()))
+
+(defvar elisp-scan-columns
+  '((:title "Type"
+            :width 10)
+    (:title "Name"
+            :width 50)
+    (:columns
+     ((:title ""
+              :width 1
+              :value (lambda (&rest _) ""))
+      (:title "File"
+              :width 40
+              :value
+              (lambda (it)
+                (buttonize
+                 (abbreviate-file-name (plist-get it :file))
+                 'elisp-scan-find-file-action
+                 (seq-copy it)
+                 "Find file")))
+      (:title "Context"
+              :value
+              (lambda (it)
+                (replace-regexp-in-string (regexp-quote (plist-get it :id))
+                                          (propertize (plist-get it :id) 'face
+                                                      'success)
+                                          (plist-get it :text))))))))
+
+(defun elisp-scan-find-file-action (props)
+  "Jump to file specified in plist PROPS at line."
+  (let ((file (plist-get props :file))
+        (line (plist-get props :line))
+        (wnd (selected-window)))
+    (when file
+      (with-selected-window wnd
+        (find-file-other-window file)
+        (when line
+          (goto-char (point-min))
+          (forward-line (1- line))
+          (pulse-momentary-highlight-one-line))))))
+
+(defun elisp-scan-render-row (item &optional id columns total)
+  "Render row ITEM with ID, COLUMNS and TOTAL.
+TOTAL is max width and defaults to 100."
+  (let* ((inhibit-read-only t)
+         (total (or total 100))
+         (open t)
+         (col-len (length columns))
+         (row-beg (point))
+         (children)
+         (sizes)
+         (subcolumns)
+         (indicator))
+    (setq indicator "")
+    (dotimes (idx (length columns))
+      (let ((column (nth idx columns))
+            (is-last (= (1+ idx) col-len)))
+        (let ((field-name (or (plist-get column :field-name)
+                              idx))
+              (value
+               (let ((value-getter (or (plist-get column :value)
+                                       idx)))
+                 (cond ((functionp value-getter)
+                        (funcall value-getter item))
+                       ((numberp value-getter)
+                        (nth value-getter item)))))
+              (width (if is-last
+                         total
+                       (plist-get column :width)))
+              (format-fn (plist-get column :format))
+              (formatted-value)
+              (beg (point))
+              (label)
+              (subcols (plist-get column :columns)))
+          (setq total (- total width))
+          (when subcols
+            (setq children value)
+            (setq subcolumns subcols))
+          (setq formatted-value
+                (cond ((and subcols)
+                       (concat indicator (format "%s " (length value))))
+                      ((stringp format-fn)
+                       (format format-fn value))
+                      ((functionp format-fn)
+                       (funcall format-fn value))
+                      ((consp format-fn)
+                       format-fn)
+                      ((stringp value) value)
+                      (t value)))
+          (setq label (cond ((and subcols)
+                             formatted-value)
+                            ((stringp formatted-value)
+                             (elisp-scan-pad-right (string-trim
+                                                 formatted-value)
+                                                width))
+                            ((numberp formatted-value)
+                             (elisp-scan-pad-right
+                              (string-trim (format "%s" formatted-value))
+                              formatted-value))
+                            ((stringp (car-safe formatted-value))
+                             (elisp-scan-pad-right (car formatted-value)
+                                                width))
+                            (t "")))
+          (if (and (not subcols)
+                   (consp label))
+              (apply #'insert-button (list (car label)
+                                          (cdr label)))
+            (insert label))
+          (push (1+ width) sizes)
+          (unless is-last
+            (let ((space (- (1+ width)
+                            (string-width label))))
+              (insert (make-string (if (> space 0) space 1) ?\s))))
+          (add-text-properties beg (point)
+                               `(field-name ,field-name
+                                            tabulated-list-id
+                                            ,id)))))
+    (setq sizes (reverse sizes))
+    (when (and open subcolumns children)
+      (dolist (child children)
+        (newline)
+        (insert (make-string 1 ?\ ))
+        (elisp-scan-render-row child id subcolumns)))
+    (add-text-properties row-beg (point)
+                         `(tabulated-list-id ,id))))
+
+(defun elisp-scan-call-process (command &rest args)
+  "Execute COMMAND with ARGS synchronously.
+
+Return stdout output if command existed with zero status, nil otherwise."
+  (with-temp-buffer
+    (let ((status (apply #'call-process command nil t nil
+                         (flatten-list args))))
+      (let ((result (string-trim (buffer-string))))
+        (if (= 0 status)
+            result
+          (message result) nil)))))
+
+(defun elisp-scan--exec-ag (str dir)
+  "Search for occurrence of STR with `ag' in DIR.
+Return list of absolute files."
+  (when-let* ((found  (elisp-scan-call-process
+                       "ag" "--nogroup" "--nocolor"
+                       "-Q"
+                       "--"
+                       str
+                       dir)))
+    (split-string found "[\n\r\f]" t)))
+
+(defun elisp-scan--exec-find (str file)
+  "Search for occurrence of STR with find in FILE.
+Return list of absolute files."
+  (when-let* ((output  (split-string
+                        (shell-command-to-string
+                         (string-join
+                          (list "find"
+                                (shell-quote-argument file)
+                                "-type f -print0 | xargs -0 -e grep -nH -e"
+                                (shell-quote-argument str))
+                          "\s"))
+                        "\n"
+                        t)))
+    (delq nil (mapcar (lambda (it)
+                        (when-let ((line-start (string-match-p
+                                                ":[0-9]+:" it)))
+                          (substring-no-properties it 0 line-start)))
+                      output))))
+
+(defun elisp-scan-find-in-project (str)
+  "Execute `ag' or `find' to find FILES with occurrences of STR."
+  (when-let ((fn
+              (pcase command
+                ((guard (executable-find "ag"))
+                 'elisp-scan--exec-ag)
+                (_ 'elisp-scan--exec-find))))
+    (let ((processed-dirs)
+          (lines-with-matches)
+          (files (let* ((pr (project-current t default-directory))
+                        (pr-dir (expand-file-name (project-root pr)))
+                        (all-files (project-files pr))
+                        (all-dirs
+                         (remove pr-dir
+                                 (delete-dups (mapcar #'file-name-directory
+                                                      all-files))))
+                        (root-files
+                         (seq-filter (lambda (it)
+                                       (and (file-readable-p it)
+                                            (not (file-directory-p it))))
+                                     (directory-files
+                                      pr-dir t
+                                      directory-files-no-dot-files-regexp))))
+                   (append (seq-intersection root-files all-files) all-dirs))))
+      (dolist (dir-or-file files)
+        (let ((dir (if (file-directory-p dir-or-file)
+                       (expand-file-name (file-name-as-directory dir-or-file))
+                     dir-or-file)))
+          (unless (member dir processed-dirs)
+            (setq processed-dirs (push dir processed-dirs))
+            (when-let ((found (funcall fn str dir)))
+              (setq found (mapcar (lambda (file)
+                                    (expand-file-name
+                                     file dir))
+                                  found))
+              (setq lines-with-matches (nconc
+                                        lines-with-matches
+                                        found))))))
+      (mapcar (lambda (it)
+                (when-let ((pl (elisp-scan-rename-parse-line it)))
+                  (append pl (list :id str))))
+              (elisp-scan-find-refs-filter-lines str
+                                                 lines-with-matches)))))
+
+(defun elisp-scan-find-references-in-file (file)
+  "Return list of symbols from FILE used in other project files."
+  (and file
+       (file-exists-p file)
+       (with-current-buffer (find-file-noselect
+                             file)
+         (let ((items (elisp-scan-buffer)))
+           (delq nil
+                 (mapcar
+                  (lambda (it)
+                    (when (assq (car it)
+                                elisp-scan-def-type-poses)
+                      (when-let* ((name
+                                   (symbol-name
+                                    (elisp-scan-unquote
+                                     (nth 1 it))))
+                                  (refs
+                                   (seq-remove
+                                    (lambda (it)
+                                      (equal file
+                                             (plist-get it
+                                                        :file)))
+                                    (elisp-scan-find-in-project
+                                     name))))
+                        (list (format "%s" (car it))
+                              name
+                              refs))))
+                  items))))))
+
+(defun elisp-scan-render-file-refs (file)
+  "Render list of symbols from FILE used in other project files in BUFFER."
+  (when-let ((group-items
+              (and file
+                   (elisp-scan-find-references-in-file file))))
+    (let ((inhibit-read-only t))
+      (save-excursion
+        (goto-char (point-max))
+        (insert-button (abbreviate-file-name file)
+                       'button-data `(:file ,file)
+                       'face 'file-name-shadow
+                       'action 'elisp-scan-find-file-action)
+        (insert "\n")
+        (dotimes (idx (length group-items))
+          (elisp-scan-render-row (nth idx group-items) idx
+                              elisp-scan-columns
+                              100)
+          (newline))))))
+
+;;;###autoload
+(defun elisp-scan-cancel-timer ()
+  "Render symbols in FILE which is used in other files to BUFFER."
+  (interactive)
+  (when (timerp elisp-scan-timer)
+    (cancel-timer elisp-scan-timer))
+  (setq elisp-scan-timer nil))
+
+(defun elisp-scan-render-chunk-in-buffer (buffer file)
+  "Render symbols in FILE, used in other files to BUFFER."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (elisp-scan-cancel-timer)
+      (let ((inhibit-read-only t))
+        (when file
+          (elisp-scan-render-file-refs file))
+        (if-let ((next-file (pop elisp-scan-files)))
+            (setq elisp-scan-timer
+                  (run-with-idle-timer 1 nil
+                                       'elisp-scan-render-chunk-in-buffer
+                                       (current-buffer)
+                                       next-file))
+          (message "Elisp-scan: Done"))))))
+
+(defun elisp-scan-report-refs-in-files (files)
+  "Scan FILES for symbols, used in other files and print report."
+  (let ((buff (with-current-buffer (get-buffer-create "*elisp-scan-report*")
+                (when (timerp elisp-scan-timer)
+                  (cancel-timer elisp-scan-timer))
+                (setq buffer-read-only t)
+                (let ((inhibit-read-only t))
+                  (erase-buffer)
+                  (setq elisp-scan-files files)
+                  (setq elisp-scan-files-total (length files))
+                  (elisp-scan-render-chunk-in-buffer
+                   (current-buffer)
+                   (pop elisp-scan-files))
+                  (current-buffer)))))
+    (pop-to-buffer-same-window buff)))
+
+;;;###autoload
+(defun elisp-scan-find-file-dependents (file)
+  "Scan FILE for symbols, used in other files and print report."
+  (interactive (list (read-file-name "File: " nil nil t
+                                     (when buffer-file-name
+                                       (file-name-nondirectory
+                                        buffer-file-name)))))
+  (elisp-scan-report-refs-in-files (list file)))
+
+;;;###autoload
+(defun elisp-scan-report-project-refs ()
+  "Scan project files for symbols, used in other files and print report."
+  (interactive)
+  (elisp-scan-report-refs-in-files (elisp-scan-get-files-to-check)))
+
+;;;###autoload (autoload 'elisp-scan-transient "elisp-scan.el" nil t)
+(transient-define-prefix elisp-scan-transient ()
+  "Command dispatcher for `elisp-scan'."
+  [[("c" "Show unused for current file" elisp-scan-current-file)
+    ("i" "Remove unused with ivy" elisp-scan-ivy-read-unused-items)
+    ("D" "Act on unused" elisp-scan-query-remove-unused)
+    ("A" "Check whole project" elisp-scan-all-unused-defs)]
+   [("f" "Scan file for symbols, used in other files"
+     elisp-scan-find-file-dependents)
+    ("p" "Scan all project files for cross-used symbols"
+     elisp-scan-report-project-refs)]])
 
 (provide 'elisp-scan)
 ;;; elisp-scan.el ends here
