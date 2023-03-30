@@ -2,6 +2,8 @@
 
 Find unused code and references in Emacs Lisp files.
 
+[[./demo.png][./demo.png]]
+
 ** Requirements
 
 - Emacs 28.1
