@@ -5,7 +5,7 @@
 ;; Author: Karim Aziiev <karim.aziiev@gmail.com>
 ;; URL: https://github.com/KarimAziev/elisp-scan
 ;; Keywords: lisp
-;; Version: 0.3.0
+;; Version: 0.4.0
 ;; Package-Requires: ((emacs "28.1") (project "0.9.4"))
 
 ;; This file is NOT part of GNU Emacs.
