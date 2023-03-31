@@ -61,18 +61,12 @@ This command will activate =elisp-scan-report-mode= with such bindings:
 
 
 ** Other commands
-*** ~elisp-scan-rename-symbol~
+- ~elisp-scan-rename-symbol~
 Rename exact matches of the symbol at the point.
-*** ~elisp-scan-ivy-read-unused-items~
+- ~elisp-scan-ivy-read-unused-items~
 Read unused definitions of the current file with ivy. To remove one item without exiting the minibuffer, use =C-c C-d=. To remove or back up a batch of items, mark them. With the optional prefix =arg= include only the current file.
 
 ** Customizations
-
-*** ~elisp-scan-initial-filters~
-Initial filters in report list mode.
-*** ~elisp-scan-permanent-dirs~
-In which directories always check usage.
-*** ~elisp-scan-archive-dir~
-Where to write backup files.
-*** ~elisp-scan-types-symbols~
-List of symbols to check.
+- ~elisp-scan-initial-filters~ Initial filters in report list mode. 
+- ~elisp-scan-permanent-dirs~ In which directories always check usage.
+- ~elisp-scan-types-symbols~ List of symbols to check.
