@@ -31,7 +31,7 @@
 
 ;; The simplest usage is to invoke transient popup `M-x elisp-scan-menu'
 
-;; `elisp-scan-current-file'    Scan elisp FILE and show report.
+;; `elisp-scan-file'    Scan elisp FILE and show report.
 ;; `elisp-scan-dir'             Scan elisp files in directory and show report.
 ;; `elisp-scan-project'         Scan project files and show report.
 
@@ -76,7 +76,7 @@
   :type 'file
   :group 'elisp-scan)
 
-(defcustom elisp-scan-permanent-dirs `(,user-emacs-directory)
+(defcustom elisp-scan-permanent-dirs nil
   "In which directories always check usage."
   :type '(repeat directory)
   :group 'elisp-scan)
@@ -88,67 +88,65 @@
            (function-item :tag "Show only unused" elisp-scan--unused-pred)
            (function-item :tag "Show only external references "
                           elisp-scan--ext-pred)
+           (function-item :tag "Hide interactive commands"
+                          elisp-scan--command-pred)
            (function :tag "Custom function")))
   :group 'elisp-scan)
 
-(defun elisp-scan-intern-cars (alist)
-  "Intern cars in ALIST."
-  (mapcar
-   (lambda (it)
-     (setcar it (intern-soft
-                 (car it)))
-     it)
-   alist))
-
 (defvar elisp-scan-modes-types
-  (elisp-scan-intern-cars '(("define-minor-mode" . 2)
-                            ("define-derived-mode" . 4)
-                            ("define-generic-mode" . 8)
-                            ("define-compilation-mode" .
-                             3)
-                            ("easy-mmode-define-minor-mode"
-                             . 2))) )
+  (list (cons 'define-minor-mode 2)
+        (cons 'define-derived-mode 4)
+        (cons 'define-generic-mode 8)
+        (cons 'define-compilation-mode 3)
+        (cons 'easy-mmode-define-minor-mode 2)) )
 
 (defvar elisp-scan-interactive-types
-  (elisp-scan-intern-cars
-   '(("defun" . 3)
-     ("defsubst" . 3)
-     ("cl-defun" . 3)
-     ("cl-defsubst" . 3))))
+  (list (cons 'defun 3)
+        (cons 'defsubst 3)
+        (cons 'cl-defun 3)
+        (cons 'cl-defsubst 3)))
 
 (defvar elisp-scan-non-defun-command-types
-  (elisp-scan-intern-cars
-   '(("defhydra" . 3)
-     ("transient-define-prefix" . 3))))
+  (list (cons 'defhydra 3)
+        (cons 'transient-define-prefix 3)))
 
 (defvar elisp-scan-func-types
-  (elisp-scan-intern-cars
-   '(("defun" . 3)
-     ("defmacro" . 3)
-     ("defsubst" . 3)
-     ("defalias" . 4)
-     ("defhydra" . 3)
-     ("transient-define-prefix" . 3)
-     ("transient-define-suffix" . 3)
-     ("transient-define-argument" . 3)
-     ("transient-define-infix" . 3)
-     ("cl-defun" . 3)
-     ("cl-defsubst" . 3)
-     ("cl-defmacro" . 3)
-     ("cl-defgeneric" . 3)
-     ("cl-defmethod" . 3))))
+  (list (cons 'defun 3)
+        (cons 'defmacro 3)
+        (cons 'defsubst 3)
+        (cons 'defalias 4)
+        (cons 'defhydra 3)
+        (cons 'transient-define-prefix 3)
+        (cons 'transient-define-suffix 3)
+        (cons 'transient-define-argument 3)
+        (cons 'transient-define-infix 3)
+        (cons 'cl-defun 3)
+        (cons 'cl-defsubst 3)
+        (cons 'cl-defmacro 3)
+        (cons 'cl-defgeneric 3)
+        (cons 'cl-defmethod 3)))
 
-(defvar elisp-scan-var-types (elisp-scan-intern-cars
-                           '(("defvar" . 3)
-                             ("defconst" . 3)
-                             ("defvar" . 3))))
+(defvar elisp-scan-var-types (list (cons 'defvar 3)
+                                   (cons 'defconst 3)
+                                   (cons 'defvar 3)))
 
-(defvar elisp-scan-custom-types (elisp-scan-intern-cars
-                              '(("defface" . 3)
-                                ("defcustom" . 3)
-                                ("defgroup" . 3)
-                                ("deftheme" . 3)))
-  "Doc.")
+(defvar elisp-scan-custom-types (list (cons 'defface 3)
+                                      (cons 'defcustom 3)
+                                      (cons 'defgroup 3)
+                                      (cons 'deftheme 3)))
+
+(defvar elisp-scan-def-type-poses
+  (append
+   (list (cons 'define-skeleton 2)
+         (cons 'ert-deftest 3)
+         (cons 'define-widget 3)
+         (cons 'easy-mmode-define-minor-mode 2)
+         (cons 'defclass 4)
+         (cons 'cl-defstruct 3))
+   elisp-scan-var-types
+   elisp-scan-custom-types
+   elisp-scan-func-types
+   elisp-scan-modes-types))
 
 (defmacro elisp-scan-with-temp-buffer (&rest body)
   "Execute BODY with in temp buffer with `emacs-lisp-mode-syntax-table'."
@@ -289,6 +287,7 @@ Arguments BOUND, NOERROR, COUNT has the same meaning as `re-search-forward'."
 (defun elisp-scan-backward-list (&optional n)
   "Move backward across N balanced group of parentheses.
 Return new position if changed, nil otherwise."
+  ;; comment
   (let ((pos (point))
         (end))
     (setq end (ignore-errors
@@ -301,13 +300,12 @@ Return new position if changed, nil otherwise."
   "Return all Lisp lists at outermost position in current buffer.
 An \"outermost position\" means one that it is outside of any syntactic entity:
 outside of any parentheses, comments, or strings encountered in the scan."
-  (let ((sexps))
-    (goto-char (point-max))
-    (while (elisp-scan-backward-list)
-      (when-let ((sexp (unless (nth 4 (syntax-ppss (point)))
-                         (list-at-point))))
-        (push sexp sexps)))
-    sexps))
+  (let ((sexps)
+        (sexp))
+    (goto-char (point-min))
+    (while (setq sexp (ignore-errors (read (current-buffer))))
+      (push sexp sexps))
+    (reverse sexps)))
 
 (defun elisp-scan-buffer-jump-to-form (type name)
   "Search for definition with TYPE and NAME in current buffer."
@@ -339,28 +337,6 @@ outside of any parentheses, comments, or strings encountered in the scan."
     (when found
       (goto-char found)
       found)))
-
-(defun elisp-scan-jump-to-item (item)
-  "Jump to propertized ITEM."
-  (let ((file (elisp-scan-get-prop item :file))
-        (id (elisp-scan-get-prop item :name))
-        (type (elisp-scan-get-prop item :type)))
-    (if (minibuffer-window-active-p (selected-window))
-        (with-minibuffer-selected-window
-          (with-current-buffer
-              (find-file-noselect file)
-            (when-let ((bounds (elisp-scan-find-item-bounds type id)))
-              (unless (get-buffer-window (current-buffer))
-                (pop-to-buffer-same-window (current-buffer)))
-              (elisp-scan-highlight-bounds (car bounds)
-                                           (cdr bounds)))))
-      (with-current-buffer
-          (find-file-noselect file)
-        (when-let ((bounds (elisp-scan-find-item-bounds type id)))
-          (unless (get-buffer-window (current-buffer))
-            (pop-to-buffer-same-window (current-buffer)))
-          (elisp-scan-highlight-bounds (car bounds)
-                                       (cdr bounds)))))))
 
 (defun elisp-scan-get-unused-in-buffer ()
   "Return alist of possibly unused items in current buffer."
@@ -954,20 +930,6 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
                        'action 'elisp-scan-button-action))))
       btn)))
 
-(defvar elisp-scan-def-type-poses
-  (append
-   (elisp-scan-intern-cars
-    '(("define-skeleton" . 2)
-      ("ert-deftest" . 3)
-      ("define-widget" . 3)
-      ("easy-mmode-define-minor-mode"
-       . 2)
-      ("defclass" . 4)
-      ("cl-defstruct" . 3)))
-   elisp-scan-var-types
-   elisp-scan-custom-types
-   elisp-scan-func-types
-   elisp-scan-modes-types))
 
 (defun elisp-scan-sexp-declare-p (sexp)
   "Return non-nil if SEXP is declared form."
@@ -1405,7 +1367,7 @@ If RESCAN is non nil recheck related file, othervise use cached items."
                                   filters))
     (tabulated-list-print t)))
 
-(defun elisp-scan-render-refs (refs)
+(defun elisp-scan-render-collapsed-content (refs)
   "Render expanded references REFS in tabulated views."
   (if (<= (length refs) 0)
       ""
@@ -1437,13 +1399,22 @@ Each plist consists of such props:
               (type-sym (car it))
               (type-name (symbol-name type-sym))
               (name (symbol-name sym))
-              (all-refs (elisp-scan-find-refs-in-project
-                         name))
+              (all-refs
+               (if elisp-scan-permanent-dirs
+                   (append (elisp-scan-find-refs-in-project
+                            name)
+                           (elisp-scan-find-lines-with-matches
+                            name
+                            elisp-scan-permanent-dirs))
+                 (elisp-scan-find-refs-in-project
+                  name)))
               (ext-refs (seq-remove
                          (apply-partially #'elisp-scan-file-pred file)
                          all-refs)))
          (list
           :sym sym
+          :interactive (and (memq :interactive it)
+                            t)
           :name name
           :type-sym type-sym
           :type type-name
@@ -1472,87 +1443,87 @@ Return t if every one of the provided predicates is satisfied by provided
              (unless (funcall filter item)
                (throw 'found t)))))))
 
+(defun elisp-scan-make-indicator (count action data)
+  "Create button with COUNT of children.
+DATA should be an argument for ACTION."
+  (funcall
+   (if (fboundp 'buttonize) 'buttonize 'button-buttonize)
+   (format "%s" count)
+   action
+   data
+   "Click to expand"))
 
-(defun elisp-scan-render-plist-buttons (plist)
-  "Convert PLIST and REFS to clickable reference."
-  (let ((local-refs (plist-get plist :local-refs))
+(defvar elisp-scan-unused-button
+  (funcall
+   (if (fboundp 'buttonize) 'buttonize 'button-buttonize)
+   "UNUSED" 'elisp-scan-filter-unused))
+
+(defun elisp-scan-plist-to-columns (plist)
+  "Convert PLIST and REFS to list of columns."
+  (let ((id (plist-get plist :id))
+        (name (plist-get plist :name))
+        (local-refs (plist-get plist :local-refs))
         (ext-refs (plist-get plist :ext-refs))
         (unused (plist-get plist :unused))
-        (file (plist-get plist :file)))
-    (let ((local-opened (member (plist-get plist :id)
-                                elisp-scan-opened-local-refs))
-          (external-opened (member (plist-get plist :id)
-                                   elisp-scan-opened-external-refs)))
-      (let ((local-btn (apply #'propertize
-                              (if local-opened
-                                  (concat (format "%s" (length local-refs)) " v")
-                                (concat (format "%s" (length local-refs))" >"))
-                              (list
-                               'mouse-face 'highlight
-                               'help-echo "Show local references"
-                               'button t
-                               'category t
-                               'button-data plist
-                               'keymap button-map
-                               'action 'elisp-scan-toggle-local-ref)))
-            (external-btn (apply #'propertize
-                                 (if external-opened
-                                     (concat (format "%s" (length ext-refs))
-                                             " v")
-                                   (concat (format "%s" (length ext-refs))" >"))
-                                 (list
-                                  'mouse-face 'highlight
-                                  'help-echo "Show external references"
-                                  'button t
-                                  'category t
-                                  'button-data plist
-                                  'keymap button-map
-                                  'action 'elisp-scan-toggle-external-ref))))
-        (list
-         (if unused
-             (funcall (if (fboundp 'buttonize)
-                          'buttonize
-                        'button-buttonize)
-                      "UNUSED"
-                      'elisp-scan-filter-unused)
-           "")
-         (file-name-nondirectory file)
-         local-btn
-         (concat external-btn
-                 (if external-opened
-                     (elisp-scan-render-refs ext-refs)
-                   "")
-                 (if local-opened
-                     (elisp-scan-render-refs local-refs)
-                   "")))))))
+        (file (plist-get plist :file))
+        (cmd (plist-get plist :interactive))
+        (type (plist-get plist :type)))
+    (list
+     (funcall
+      (if (fboundp 'buttonize) 'buttonize 'button-buttonize) name
+      'elisp-scan-button-action
+      plist)
+     type
+     (if cmd
+         (funcall
+          (if (fboundp 'buttonize) 'buttonize 'button-buttonize)
+          "COMMAND"
+          'elisp-scan-filter-commands
+          plist)
+       "")
+     (if unused elisp-scan-unused-button "")
+     (file-name-nondirectory file)
+     (elisp-scan-make-indicator
+      (length local-refs)
+      'elisp-scan-toggle-local-ref plist)
+     (concat
+      (elisp-scan-make-indicator
+       (length ext-refs)
+       'elisp-scan-toggle-external-ref
+       plist)
+      (mapconcat #'elisp-scan-render-collapsed-content
+                 (remove nil
+                         (list
+                          (and (member id
+                                       elisp-scan-opened-external-refs)
+                               ext-refs)
+                          (and (member id
+                                       elisp-scan-opened-local-refs)
+                               local-refs)))
+                 "")))))
 
 (defun elisp-scan-render-defs (items &optional filters)
   "Render ITEMS with FILTERS."
-  (let ((filtered-items (if filters
-                            (seq-filter (elisp-scan-all-pass filters)
-                                        items)
-                          items)))
+  (let ((filtered-items
+         (if filters
+             (seq-filter (elisp-scan-all-pass filters)
+                         items)
+           items)))
     (mapcar
      (lambda (it)
-       (let* ((id (plist-get it :name))
-              (bth
-               (funcall (if (fboundp 'buttonize)
-                            'buttonize
-                          'button-buttonize)
-                        id
-                        'elisp-scan-button-action
-                        it)))
-         (list
-          (plist-get it :id)
-          (apply #'vector (append (list
-                                   bth
-                                   (plist-get it :type))
-                                  (elisp-scan-render-plist-buttons it))))))
+       (list
+        (plist-get it :id)
+        (apply #'vector (elisp-scan-plist-to-columns
+                         it))))
      filtered-items)))
 
 (defun elisp-scan--unused-pred (plist)
   "Return non nil if PLIST's property :unused is non nil."
   (plist-get plist :unused))
+
+(defun elisp-scan--command-pred (plist)
+  "Return non nil if PLIST's property :interactive is non nil."
+  (not (plist-get plist :interactive)))
 
 (defun elisp-scan--ext-pred (plist)
   "Return non nil if PLIST's property :ext-refs is non nil."
@@ -1663,7 +1634,7 @@ Return t if every one of the provided predicates is satisfied by provided
                  (skip-chars-forward "\s\t*")
                  (point))))
 
-
+;;;###autoload
 (defun elisp-scan-cancel-timer ()
   "Reset `elisp-scan-timer'."
   (interactive)
@@ -1720,13 +1691,18 @@ Return t if every one of the provided predicates is satisfied by provided
     (elisp-scan-rerender-refs)))
 
 ;;;###autoload
-(defun elisp-scan-project (&optional project-dir)
-  "Scan PROJECT-DIR and show report."
-  (interactive)
-  (let* ((pr (or project-dir
-                 (project-root (project-current t default-directory))))
-         (files (elisp-scan-find-project-files))
-         (buff (get-buffer-create (format "*elisp-scan-report-%s*" pr))))
+(defun elisp-scan-project (&optional arg)
+  "Scan current project and show report.
+When prefix ARG is non-nil, prompt project."
+  (interactive "P")
+  (let* ((default-directory (expand-file-name (if arg
+                                                  (project-prompt-project-dir)
+                                                (project-root
+                                                 (project-current t)))))
+         (files (if arg
+                    (elisp-scan-find-project-files)))
+         (buff (get-buffer-create (format "*elisp-scan-report-%s*"
+                                          default-directory))))
     (with-current-buffer buff
       (elisp-scan-cancel-timer)
       (unless (derived-mode-p 'elisp-scan-report-mode)
@@ -1742,9 +1718,10 @@ Return t if every one of the provided predicates is satisfied by provided
       (display-buffer buff))
     buff))
 
+
 ;;;###autoload
-(defun elisp-scan-dir (dir)
-  "Scan elisp files in DIR and show report."
+(defun elisp-scan-dir (directory)
+  "Scan elisp files in the DIRECTORY and show the report."
   (interactive (list (read-directory-name "Directory")))
   (sit-for 0.5)
   (let* ((entries (seq-reduce
@@ -1756,12 +1733,12 @@ Return t if every one of the provided predicates is satisfied by provided
                                 (elisp-scan-with-fake-file file
                                     (elisp-scan-defs-with-refs)))))
                    (directory-files-recursively
-                    dir
+                    directory
                     "\\.el$" nil nil)
                    '())))
     (with-current-buffer
         (get-buffer-create
-         (format "*elisp-scan-report-%s*" (abbreviate-file-name dir)))
+         (format "*elisp-scan-report-%s*" (abbreviate-file-name directory)))
       (elisp-scan-report-mode)
       (setq elisp-scan-cached-entries entries)
       (setq tabulated-list-entries (elisp-scan-render-defs
@@ -1772,9 +1749,10 @@ Return t if every one of the provided predicates is satisfied by provided
       (tabulated-list-print)
       (display-buffer (current-buffer)))))
 
+
 ;;;###autoload
-(defun elisp-scan-current-file (file)
-  "Scan elisp FILE and show report."
+(defun elisp-scan-file (file)
+  "Scan the FILE and show the report."
   (interactive (list (read-file-name "File: " (when buffer-file-name
                                                 (file-name-nondirectory
                                                  buffer-file-name)))))
@@ -1792,6 +1770,10 @@ Return t if every one of the provided predicates is satisfied by provided
                 #'elisp-scan-revert nil t)
       (tabulated-list-print)
       (display-buffer (current-buffer)))))
+
+(defalias 'elisp-scan-current-file 'elisp-scan-file
+  "Scan the FILE and show the report.")
+
 
 ;;;###autoload
 (defun elisp-scan-toggle-entry-at-point ()
@@ -1890,6 +1872,13 @@ Return t if every one of the provided predicates is satisfied by provided
           (push 'elisp-scan--ext-pred elisp-scan-filters)))
   (elisp-scan-rerender-refs))
 
+;;;###autoload
+(defun elisp-scan-filter-commands (&rest _)
+  "Toggle whether to show only unused items."
+  (interactive)
+  (elisp-scan-toggle-filter 'elisp-scan--command-pred)
+  (elisp-scan-rerender-refs))
+
 
 ;;;###autoload
 (defun elisp-scan-filter-unused (&rest _)
@@ -1906,12 +1895,28 @@ Return t if every one of the provided predicates is satisfied by provided
   (setq tabulated-list-format
         [("Name" 40 t)
          ("Type" 10 t)
+         ("Interactive" 10 t)
          ("Status" 10 t)
          ("File" 15 t)
-         ("Local" 10 t)
-         ("External" 10 t)])
+         ("Local" 5 (lambda (a b)
+                      (> (string-to-number (aref (cadr a) 5))
+                         (string-to-number (aref (cadr b) 5)))))
+         ("External" 5 (lambda (a b)
+                         (> (string-to-number (aref (cadr a) 6))
+                            (string-to-number (aref (cadr b) 6)))))])
   (tabulated-list-init-header)
   (setq tabulated-list-padding 2)
+  (setq-local imenu-prev-index-position-function
+              (lambda ()
+                (unless (bobp)
+                  (forward-line -1))))
+  (setq-local imenu-extract-index-name-function
+              (lambda ()
+                (unless (bobp)
+                  (string-trim
+                   (buffer-substring-no-properties
+                    (line-beginning-position)
+                    (line-end-position))))))
   (use-local-map elisp-scan-report-mode-map))
 
 
@@ -1919,10 +1924,10 @@ Return t if every one of the provided predicates is satisfied by provided
 (transient-define-prefix elisp-scan-menu ()
   "Command dispatcher for `elisp-scan'."
   ["Report"
-   [("c" "Check file" elisp-scan-current-file)
-    ("p" "Check project" elisp-scan-project)
-    ("d" "Check directory" elisp-scan-dir)
-    ("A" "Check project for unused definitions"
+   [("f" "Scan file" elisp-scan-file)
+    ("p" "Scan project" elisp-scan-project)
+    ("d" "Scan directory" elisp-scan-dir)
+    ("A" "Project for unused definitions"
      elisp-scan-all-unused-defs
      :inapt-if-not project-current)]]
   ["Misc"
@@ -1948,6 +1953,13 @@ Return t if every one of the provided predicates is satisfied by provided
                     (elisp-scan-make-toggle-description
                      "Show external"
                      (memq 'elisp-scan--ext-pred elisp-scan-filters)))
+     :transient t)
+    ("i"
+     elisp-scan-filter-commands
+     :description (lambda ()
+                    (elisp-scan-make-toggle-description
+                     "Exclude interactive"
+                     (memq 'elisp-scan--command-pred elisp-scan-filters)))
      :transient t)]]
   ["Show references"
    [("<tab>" "Toggle entry refs" elisp-scan-toggle-entry-at-point
@@ -2050,7 +2062,27 @@ With optional prefix ARG include only current file."
          file
          (and (null arg)
               (elisp-scan-get-files-to-check)))))
-     :action 'elisp-scan-jump-to-item
+     :action (lambda (item)
+               (let ((file (elisp-scan-get-prop item :file))
+                     (id (elisp-scan-get-prop item :name))
+                     (type (elisp-scan-get-prop item :type)))
+                 (if (minibuffer-window-active-p (selected-window))
+                     (with-minibuffer-selected-window
+                       (with-current-buffer
+                           (find-file-noselect file)
+                         (when-let ((bounds
+                                     (elisp-scan-find-item-bounds type id)))
+                           (unless (get-buffer-window (current-buffer))
+                             (pop-to-buffer-same-window (current-buffer)))
+                           (elisp-scan-highlight-bounds (car bounds)
+                                                        (cdr bounds)))))
+                   (with-current-buffer
+                       (find-file-noselect file)
+                     (when-let ((bounds (elisp-scan-find-item-bounds type id)))
+                       (unless (get-buffer-window (current-buffer))
+                         (pop-to-buffer-same-window (current-buffer)))
+                       (elisp-scan-highlight-bounds (car bounds)
+                                                    (cdr bounds)))))))
      :keymap elisp-scan-ivy-map
      :caller 'elisp-scan-ivy-read-unused-items
      :dynamic-collection t

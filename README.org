@@ -1,8 +1,10 @@
 * elisp-scan
 
-Find unused code and references in Emacs Lisp files.
+Find unused code and print reports for Emacs Lisp files.
 
-[[./demo.png][./demo.png]]
+~elisp-scan~ use mixed text search - initial "dumb" searching with ~ag~, then parses the code with elisp. 
+
+[[./demo.gif][./demo.gif]]
 
 ** Requirements
 
@@ -25,7 +27,7 @@ Put the following in your init file:
 
 *** Manual
 
-Or download repository and add it to your ~load-path~.
+Or download the repository and add it to your ~load-path~.
 
 #+begin_src elisp
 
@@ -34,37 +36,35 @@ Or download repository and add it to your ~load-path~.
 (require 'elisp-scan)
 #+end_src
 ** Usage
+   
+The most straightforward usage is to invoke transient popup ~M-x elisp-scan-menu~ and ~M-x elisp-scan-list-menu~ (in report buffers).
 
-The simplest usage is to invoke transient popup ~M-x elisp-scan-menu~ or ~M-x elisp-scan-list-menu~ with such commands:
+- ~elisp-scan-file~ Scan the Elisp file and show the report.
+- ~elisp-scan-dir~ Scan elisp files in the directory and show the report.
+- ~elisp-scan-project~  Scan project files and show the report.
+- ~elisp-scan-all-unused-defs~ Same as ~elisp-scan-project~ but with predefined filters to show only unused items. 
 
-*** ~elisp-scan-dir~  (dir)
-Scan elisp files in =dir= and show report.
-*** ~elisp-scan-project~  (&optional project-dir)
-Scan project files and show report.
-*** ~elisp-scan-all-unused-defs~
-Same as ~elisp-scan-project~ but with predefined filters to show only unuse items. 
+This command will activate =elisp-scan-report-mode= with such bindings:
 
-This commands will activate =elisp-scan-report-mode= with keymap:
-
-| Key     | Command                                 | 
-|---------+-----------------------------------------|
-| RET     | View entry                              |
-| D       | Remove marked entries or entry at point |
-| K       | Cancel rendering                        |
-| m       | Mark entry                              |
-| u       | Unmark entry                            |
-| C-c C-n | Move to the next entry start            |
-| C-c C-p | Move to the previous entry start        |
-| C-.     | Show transient menu                     |
-| .       | Show transient menu                     |
-| ?       | Show transient menu                     |
+| Key       | Command                                 |
+|-----------+-----------------------------------------|
+| =RET=     | View entry                              |
+| =D=       | Remove marked entries or entry at point |
+| =K=       | Cancel rendering                        |
+| =m=       | Mark entry                              |
+| =u=       | Unmark entry                            |
+| =C-c C-n= | Move to the next entry start            |
+| =C-c C-p= | Move to the previous entry start        |
+| =C-.=     | Show transient menu                     |
+| =.=       | Show transient menu                     |
+| =?=       | Show transient menu                     |
 
 
 ** Other commands
 *** ~elisp-scan-rename-symbol~
-Rename exact matches of symbol at point.
-*** ~elisp-scan-ivy-read-unused-items~  (&optional arg)
-Read unused definitions of current file with ivy. To remove one item without exiting minibuffer use =C-c C-d=. To remove or backup batch of items, mark them. With optional prefix =arg= include only current file.
+Rename exact matches of the symbol at the point.
+*** ~elisp-scan-ivy-read-unused-items~
+Read unused definitions of the current file with ivy. To remove one item without exiting the minibuffer, use =C-c C-d=. To remove or back up a batch of items, mark them. With the optional prefix =arg= include only the current file.
 
 ** Customizations
 
@@ -75,4 +75,4 @@ In which directories always check usage.
 *** ~elisp-scan-archive-dir~
 Where to write backup files.
 *** ~elisp-scan-types-symbols~
-Symbols which should always be checked.
+List of symbols to check.
