@@ -25,15 +25,16 @@
 
 ;;; Commentary:
 
-;; This file configures operations with scan
-
 ;; Usage
 
-;; The simplest usage is to invoke transient popup `M-x elisp-scan-menu'
+;; The most straightforward usage is to invoke transient popup M-x `elisp-scan-menu'.
 
-;; `elisp-scan-file'    Scan elisp FILE and show report.
-;; `elisp-scan-dir'             Scan elisp files in directory and show report.
-;; `elisp-scan-project'         Scan project files and show report.
+;; Main commands:
+
+;; - `elisp-scan-file' Scan the Elisp file and show the report.
+;; - `elisp-scan-dir' Scan elisp files in the directory and show the report.
+;; - `elisp-scan-project'  Scan project files and show the report.
+;; - `elisp-scan-all-unused-defs' Same as `elisp-scan-project' but with predefined filters to show only unused items.
 
 ;; This commands will activate `elisp-scan-report-mode'.
 ;; M-x `elisp-scan-list-menu' - will dispatch transient menu for this mode.
@@ -287,7 +288,6 @@ Arguments BOUND, NOERROR, COUNT has the same meaning as `re-search-forward'."
 (defun elisp-scan-backward-list (&optional n)
   "Move backward across N balanced group of parentheses.
 Return new position if changed, nil otherwise."
-  ;; comment
   (let ((pos (point))
         (end))
     (setq end (ignore-errors
