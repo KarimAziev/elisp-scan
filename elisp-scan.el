@@ -1771,7 +1771,7 @@ When prefix ARG is non-nil, prompt project."
       (tabulated-list-print)
       (display-buffer (current-buffer)))))
 
-(defalias 'elisp-scan-current-file 'elisp-scan-file
+(defalias 'elisp-scan-current-file #'elisp-scan-file
   "Scan the FILE and show the report.")
 
 
