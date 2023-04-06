@@ -189,6 +189,16 @@
          (save-excursion
            ,@body)))))
 
+(defun elisp-scan-rpartial (fn &rest args)
+  "Return a partial application of a function FN to right-hand ARGS.
+
+ARGS is a list of the last N arguments to pass to FN. The result is a new
+function which does the same as FN, except that the last N arguments are fixed
+at the values with which this function was called."
+  (lambda (&rest pre-args)
+    (apply fn
+           (append pre-args args))))
+
 (defun elisp-scan-re-search-forward-inner (regexp &optional bound count)
   "This function is helper for `elisp-scan-re-search-forward'.
 Search forward from point for regular expression REGEXP.
@@ -338,17 +348,17 @@ outside of any parentheses, comments, or strings encountered in the scan."
       (goto-char found)
       found)))
 
-(defun elisp-scan-get-unused-in-buffer ()
-  "Return alist of possibly unused items in current buffer."
-  (let ((items (elisp-scan-buffer))
+(defun elisp-scan-get-unused-in-buffer (&optional items)
+  "Return alist of possibly unused ITEMS in current buffer."
+  (let ((items (or items (elisp-scan-buffer)))
         (unused))
     (dolist (l items)
       (let ((type (car-safe l))
             (symb (nth 1 l)))
-        (when (and (not (memq :declared-variable l))
-                   (or
-                    (memq type elisp-scan-types-symbols)
-                    (memq type '(declare-function))))
+        (when (and
+               (or
+                (memq type elisp-scan-types-symbols)
+                (memq type '(declare-function))))
           (when (elisp-scan-buffer-jump-to-form type symb)
             (let* ((name (symbol-name symb))
                    (re (elisp-scan-make-re name))
@@ -726,6 +736,10 @@ what to do with it."
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "m") #'elisp-scan-mark)
     (define-key map (kbd "u") #'elisp-scan-unmark)
+    (define-key map (kbd "U") #'elisp-scan-unmark-all)
+    (define-key map (kbd "C-c M-u") #'elisp-scan-mark-unused)
+    (define-key map (kbd "C-c M-c") #'elisp-scan-mark-commands)
+    (define-key map (kbd "C-c M-e") #'elisp-scan-mark-externals)
     (define-key map (kbd "D") #'elisp-scan-remove-marked)
     (define-key map (kbd "C-c C-n") #'elisp-scan-next-entry-line)
     (define-key map (kbd "C-c C-p") #'elisp-scan-prev-entry-line)
@@ -735,7 +749,7 @@ what to do with it."
     (define-key map (kbd "?") #'elisp-scan-list-menu)
     (define-key map (kbd "RET") #'elisp-scan-push-button)
     (define-key map (kbd "C-j") #'elisp-scan-push-button)
-    (define-key map [tab] #' elisp-scan-toggle-entry-at-point )
+    (define-key map [tab] #'elisp-scan-toggle-entry-at-point)
     (define-key map [backtab] #'elisp-scan-toggle-expand-all)
     (set-keymap-parent map tabulated-list-mode-map)
     map)
@@ -802,8 +816,8 @@ what to do with it."
       (plist-get (text-properties-at 0 (aref entry 0)) 'button-data))))
 
 (defun elisp-scan-tabulated-marked (&optional char)
-  "Return marked repositories.
-If optional CHAR is non-nil, then only return repositories
+  "Return marked entries.
+If optional CHAR is non-nil, then only return items
 marked with that character."
   (let (c list)
     (save-excursion
@@ -1283,10 +1297,10 @@ If NO-CONFIRM is non nil, don't prompt."
         (setq tabulated-list-entries (elisp-scan-render-defs
                                       elisp-scan-cached-entries
                                       elisp-scan-filters))
-        (tabulated-list-print))
+        (elisp-scan-rerender))
       (if-let ((next-file (pop elisp-scan-files)))
           (setq elisp-scan-timer
-                (run-with-idle-timer 0.5 nil
+                (run-with-idle-timer 1 nil
                                      #'elisp-scan-render-chunk-in-buffer
                                      (current-buffer)
                                      next-file))
@@ -1326,7 +1340,7 @@ If NO-CONFIRM is non nil, don't prompt."
     (setq tabulated-list-entries (elisp-scan-render-defs
                                   refs
                                   elisp-scan-filters))
-    (tabulated-list-print t)))
+    (elisp-scan-rerender)))
 
 (defun elisp-scan-toggle-external-ref (plist)
   "Convert PLIST to clickable reference."
@@ -1337,7 +1351,7 @@ If NO-CONFIRM is non nil, don't prompt."
   (let ((refs elisp-scan-cached-entries))
     (setq tabulated-list-entries (elisp-scan-render-defs refs
                                                          elisp-scan-filters))
-    (tabulated-list-print t)))
+    (elisp-scan-rerender)))
 
 
 (defun elisp-scan-get-files-from-cached-entries ()
@@ -1365,7 +1379,7 @@ If RESCAN is non nil recheck related file, othervise use cached items."
     (setq tabulated-list-entries
           (elisp-scan-render-defs refs
                                   filters))
-    (tabulated-list-print t)))
+    (elisp-scan-rerender)))
 
 (defun elisp-scan-render-collapsed-content (refs)
   "Render expanded references REFS in tabulated views."
@@ -1390,9 +1404,11 @@ Each plist consists of such props:
 :file - filename of the scanned buffer
 :local-refs - references of name in scanned file
 :ext-refs - external references of name in other files
-:unused - t or nil, whether item is unused."
+:unused - t or nil, whether item is unused.
+:interactive - t or nil, whether item is interactive."
   (let* ((file buffer-file-name)
-         (unused (mapcar #'car (elisp-scan-get-unused-in-buffer))))
+         (items (elisp-scan-buffer))
+         (unused (mapcar #'car (elisp-scan-get-unused-in-buffer items))))
     (mapcar
      (lambda (it)
        (let* ((sym (cadr it))
@@ -1401,11 +1417,12 @@ Each plist consists of such props:
               (name (symbol-name sym))
               (all-refs
                (if elisp-scan-permanent-dirs
-                   (append (elisp-scan-find-refs-in-project
-                            name)
-                           (elisp-scan-find-lines-with-matches
-                            name
-                            elisp-scan-permanent-dirs))
+                   (delete-dups
+                    (append (elisp-scan-find-refs-in-project
+                             name)
+                            (elisp-scan-find-lines-with-matches
+                             name
+                             elisp-scan-permanent-dirs)))
                  (elisp-scan-find-refs-in-project
                   name)))
               (ext-refs (seq-remove
@@ -1431,7 +1448,7 @@ Each plist consists of such props:
      (seq-filter (lambda (it)
                    (memq (car-safe it)
                          elisp-scan-types-symbols))
-                 (elisp-scan-buffer)))))
+                 items))))
 
 (defun elisp-scan-all-pass (filters)
   "Create an unary predicate function from FILTERS.
@@ -1552,6 +1569,46 @@ DATA should be an argument for ACTION."
                           'transient-inactive-value))
            ")") )
 
+(defun elisp-scan-mark-by-pred (pred)
+  "Mark entries, that satisfies function PRED.
+PRED should accepts one argument - plist."
+  (require 'text-property-search)
+  (save-excursion
+    (goto-char (point-min))
+    (while (text-property-search-forward 'tabulated-list-id)
+      (when-let ((props (elisp-scan-button-data-props-at-point)))
+        (when (funcall pred props)
+          (tabulated-list-put-tag "*"))))))
+
+(defun elisp-scan-rerender ()
+  "Populate the current Tabulated List mode buffer and restore marked."
+  (let ((marked-ids (mapcar (elisp-scan-rpartial #'plist-get :id)
+                            (elisp-scan-tabulated-marked))))
+    (tabulated-list-print t)
+    (when marked-ids
+      (elisp-scan-mark-by-pred (lambda (pl)
+                                 (member
+                                  (plist-get pl :id)
+                                  marked-ids))))))
+
+;;;###autoload
+(defun elisp-scan-mark-commands ()
+  "Mark interactive entries."
+  (interactive)
+  (elisp-scan-mark-by-pred (elisp-scan-rpartial
+                            #'plist-get :interactive)))
+
+;;;###autoload
+(defun elisp-scan-mark-externals ()
+  "Mark entries with external references."
+  (interactive)
+  (elisp-scan-mark-by-pred 'elisp-scan--ext-pred))
+
+;;;###autoload
+(defun elisp-scan-mark-unused ()
+  "Mark unused entries."
+  (interactive)
+  (elisp-scan-mark-by-pred 'elisp-scan--unused-pred))
 
 ;;;###autoload
 (defun elisp-scan-mark ()
@@ -1573,6 +1630,22 @@ DATA should be an argument for ACTION."
     (elisp-scan-goto-start-of-entry)
     (tabulated-list-put-tag " " t))
   (text-property-search-backward 'tabulated-list-id))
+
+;;;###autoload
+(defun elisp-scan-unmark-all (&optional char)
+  "Unmark all marked entries.
+If optional CHAR is non-nil, then only return items
+marked with that character."
+  (interactive)
+  (save-excursion
+    (goto-char (point-min))
+    (while (not (eobp))
+      (pcase (char-after)
+        (?\s nil)
+        ((pred (apply-partially 'eq char))
+         (tabulated-list-put-tag " "))
+        (_ (tabulated-list-put-tag " ")))
+      (forward-line))))
 
 
 ;;;###autoload
@@ -1804,8 +1877,7 @@ When prefix ARG is non-nil, prompt project."
     (setq tabulated-list-entries (elisp-scan-render-defs
                                   refs
                                   elisp-scan-filters))
-    (tabulated-list-print t)))
-
+    (elisp-scan-rerender)))
 
 ;;;###autoload
 (defun elisp-scan-toggle-expand-all-local-refs ()
@@ -1821,7 +1893,7 @@ When prefix ARG is non-nil, prompt project."
     (setq tabulated-list-entries
           (elisp-scan-render-defs refs
                                   elisp-scan-filters))
-    (tabulated-list-print t)))
+    (elisp-scan-rerender)))
 
 ;;;###autoload
 (defun elisp-scan-toggle-expand-all-external-refs ()
@@ -1837,8 +1909,7 @@ When prefix ARG is non-nil, prompt project."
     (setq tabulated-list-entries
           (elisp-scan-render-defs refs
                                   elisp-scan-filters))
-    (tabulated-list-print t)))
-
+    (elisp-scan-rerender)))
 
 ;;;###autoload
 (defun elisp-scan-toggle-expand-all ()
@@ -1850,16 +1921,15 @@ When prefix ARG is non-nil, prompt project."
                  elisp-scan-opened-local-refs))
         (ids))
     (setq ids (unless val
-                (mapcar (lambda (pl)
-                          (plist-get pl :id))
+                (mapcar (elisp-scan-rpartial #'plist-get :id)
                         elisp-scan-cached-entries)))
     (dolist (var vars)
-      (set var ids)))
-  (let ((refs elisp-scan-cached-entries))
-    (setq tabulated-list-entries
-          (elisp-scan-render-defs refs
-                                  elisp-scan-filters))
-    (tabulated-list-print t)))
+      (set var ids))
+    (let ((refs elisp-scan-cached-entries))
+      (setq tabulated-list-entries
+            (elisp-scan-render-defs refs
+                                    elisp-scan-filters))
+      (elisp-scan-rerender))))
 
 ;;;###autoload
 (defun elisp-scan-filter-externals (&rest _)
@@ -1967,23 +2037,30 @@ When prefix ARG is non-nil, prompt project."
     ("a" elisp-scan-toggle-expand-all
      :description (lambda ()
                     (elisp-scan-make-toggle-description
-                     "Expand all references"
+                     "Expand all"
                      (and elisp-scan-opened-external-refs
                           elisp-scan-opened-local-refs)))
      :transient t)
     ("l" elisp-scan-toggle-expand-all-local-refs
      :description (lambda ()
                     (elisp-scan-make-toggle-description
-                     "Expand local references"
+                     "Expand local"
                      elisp-scan-opened-local-refs))
      :transient t)
     ("r"
      elisp-scan-toggle-expand-all-external-refs
      :description (lambda ()
                     (elisp-scan-make-toggle-description
-                     "Expand external references"
+                     "Expand external"
                      elisp-scan-opened-external-refs))
      :transient t)]]
+  ["Marks"
+   [("C-SPC" "Mark" elisp-scan-mark :transient t)
+    ("u" "Unmark" elisp-scan-unmark :transient t)
+    ("U" "Unmark all" elisp-scan-unmark-all :transient t)
+    ("mu" "Mark unused" elisp-scan-mark-unused :transient t)
+    ("mc" "Mark commands" elisp-scan-mark-commands :transient t)
+    ("me" "Mark externals" elisp-scan-mark-externals :transient t)]]
   [("C-p" "Previous entry" elisp-scan-prev-entry-line
     :transient t)
    ("C-n" "Next entry" elisp-scan-next-entry-line
@@ -1992,14 +2069,11 @@ When prefix ARG is non-nil, prompt project."
    ("K" "Stop rendering" elisp-scan-cancel-timer
     :inapt-if-not
     (lambda ()
-      (timerp elisp-scan-timer)))
-   ("u" "Unmark" elisp-scan-unmark :transient t)
-   ("m" "Mark" elisp-scan-mark :transient t)]
+      (timerp elisp-scan-timer)))]
   (interactive)
   (if (derived-mode-p 'elisp-scan-report-mode)
       (transient-setup 'elisp-scan-list-menu)
     (elisp-scan-menu)))
-
 
 ;;; ivy
 (defvar ivy-last)
