@@ -1043,17 +1043,18 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
                          (seq-drop item 2))))
           ((guard
             (and (assq type elisp-scan-interactive-types)
-                 (eq 'interactive (if doc
-                                      (car-safe
-                                       (car-safe
-                                        (cdr-safe
-                                         (member doc
-                                                 item))))
-                                    (nth
-                                     (cdr
-                                      (assq type
-                                            elisp-scan-interactive-types))
-                                     item)))))
+                 (eq 'interactive
+                     (if doc
+                         (car-safe
+                          (car-safe
+                           (cdr-safe
+                            (member doc
+                                    item))))
+                       (car-safe (nth
+                                  (cdr
+                                   (assq type
+                                         elisp-scan-interactive-types))
+                                  item))))))
            (list (list (car item)
                        (cadr item)
                        (caddr item)
