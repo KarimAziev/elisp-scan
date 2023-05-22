@@ -1148,13 +1148,15 @@ Return list of absolute files."
     (delq nil (mapcar (lambda (it)
                         (when-let ((line-start (string-match-p
                                                 ":[0-9]+:" it)))
-                          (substring-no-properties it 0 line-start)))
+                          ;; (substring-no-properties it 0 line-start)
+                          it))
                       output))))
 
-(defun elisp-scan-find-refs-in-project (str)
-  "Execute `ag' or `find' to find project files with occurrences of STR."
+(defun elisp-scan-find-refs-in-project (str &optional command)
+  "Execute COMMAND to find project files with occurrences of STR."
   (elisp-scan-find-lines-with-matches str
-                                      (elisp-scan-find-project-files)))
+                                      (elisp-scan-find-project-files)
+                                      command))
 
 (defun elisp-scan-file-pred (file plist)
   "Return t if PLIST's property :file equals to FILE."
