@@ -82,7 +82,8 @@
   :type '(repeat directory)
   :group 'elisp-scan)
 
-(defcustom elisp-scan-initial-filters nil
+(defcustom elisp-scan-initial-filters '(elisp-scan--unused-pred
+                                        elisp-scan--command-pred)
   "Initial filters in report list mode."
   :type '(repeat
           (radio
