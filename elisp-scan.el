@@ -6,7 +6,8 @@
 ;; URL: https://github.com/KarimAziev/elisp-scan
 ;; Keywords: lisp
 ;; Version: 0.4.0
-;; Package-Requires: ((emacs "28.1") (project "0.9.4"))
+;; Package-Requires: ((emacs "29.1") (project "0.10.0") (transient "0.4.3"))
+;; SPDX-License-Identifier: GPL-3.0-or-later
 
 ;; This file is NOT part of GNU Emacs.
 
@@ -471,6 +472,7 @@ ITEM should be a propertized string or a plist."
                    autoload-beg))))))
       (cons (or autoload-start beg) end))))
 
+
 (defun elisp-scan-find-all-unsused-defs-0 ()
   "Find all unused definitions in current buffer."
   (let ((unused)
@@ -487,14 +489,14 @@ ITEM should be a propertized string or a plist."
           (when (null (save-excursion
                         (elisp-scan-re-search-backward
                          re nil t 2)))
-            (let
-                ((file
-                  (save-excursion
-                    (goto-char (nth 1 (nth 9 (syntax-ppss (point)))))
-                    (forward-char 1)
-                    (when-let ((start (1+ (point))))
-                      (forward-sexp 1)
-                      (buffer-substring-no-properties start (1- (point)))))))
+            (when-let* ((list-start (nth 1 (nth 9 (syntax-ppss (point)))))
+                        (file
+                         (save-excursion
+                           (goto-char list-start)
+                           (forward-char 1)
+                           (when-let ((start (1+ (point))))
+                             (forward-sexp 1)
+                             (buffer-substring-no-properties start (1- (point)))))))
               (push (propertize id
                                 :file file
                                 :type type
@@ -797,7 +799,7 @@ what to do with it."
               (pulse-momentary-highlight-region beg end))))))))
 
 (defun elisp-scan-goto-start-of-entry ()
-  "Return button data props from first column."
+  "Move to the first line of the current tabulated list entry."
   (when-let ((id (tabulated-list-get-id)))
     (let ((prev-id))
       (while (and
@@ -837,10 +839,15 @@ marked with that character."
   "Return files from current project and permanent projects.
 Permanent projects defined in `elisp-scan-permanent-dirs'."
   (let ((project-find-functions '(project-try-vc try)))
-    (if-let* ((curr (project-current t default-directory))
+    (if-let* ((curr
+               (when-let ((project (ignore-errors (project-current))))
+                 (if (fboundp 'project-root)
+                     (project-root project)
+                   (with-no-warnings
+                     (car (project-roots project))))))
               (projects
                (seq-uniq (mapcar #'expand-file-name
-                                 (append (cddr curr)
+                                 (append (list curr)
                                          elisp-scan-permanent-dirs)))))
         (elisp-scan-find-files-in-projects projects)
       (elisp-scan-find-project-files))))
@@ -1020,7 +1027,8 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
           ((or 'use-package 'use-package!)
            (let ((data (save-excursion
                          (elisp-scan-parse-sexp-from-backward)))
-                 (v `(use-package ,(nth 1 item))))
+                 (v
+                  `(use-package ,(nth 1 item))))
              (if data
                  (push v data)
                (list v))))
@@ -1334,8 +1342,11 @@ If NO-CONFIRM is non nil, don't prompt."
 (defun elisp-scan-make-id (&rest props)
   "Make ID from PROPS."
   (string-join (seq-filter #'stringp props) "--"))
+
 (defun elisp-scan-toggle-local-ref (plist)
-  "Convert PLIST to clickable reference."
+  "Toggle display of local references in a list view.
+
+Argument PLIST is a property list containing various key-value pairs."
   (setq elisp-scan-opened-local-refs
         (if (member (plist-get plist :id) elisp-scan-opened-local-refs)
             (delete (plist-get plist :id) elisp-scan-opened-local-refs)
@@ -1347,7 +1358,9 @@ If NO-CONFIRM is non nil, don't prompt."
     (elisp-scan-rerender)))
 
 (defun elisp-scan-toggle-external-ref (plist)
-  "Convert PLIST to clickable reference."
+  "Toggle external references in a list view.
+
+Argument PLIST is a property list containing various key-value pairs."
   (setq elisp-scan-opened-external-refs
         (if (member (plist-get plist :id) elisp-scan-opened-external-refs)
             (delete (plist-get plist :id) elisp-scan-opened-external-refs)
@@ -1646,7 +1659,7 @@ marked with that character."
     (while (not (eobp))
       (pcase (char-after)
         (?\s nil)
-        ((pred (apply-partially 'eq char))
+        ((pred (apply-partially #'eq char))
          (tabulated-list-put-tag " "))
         (_ (tabulated-list-put-tag " ")))
       (forward-line))))
@@ -1811,7 +1824,7 @@ When prefix ARG is non-nil, prompt project."
                                     (elisp-scan-defs-with-refs)))))
                    (directory-files-recursively
                     directory
-                    "\\.el$" nil nil)
+                    "\\.el\\'" nil nil)
                    '())))
     (with-current-buffer
         (get-buffer-create
@@ -1849,7 +1862,7 @@ When prefix ARG is non-nil, prompt project."
       (display-buffer (current-buffer)))))
 
 (defalias 'elisp-scan-current-file #'elisp-scan-file
-  "Scan the FILE and show the report.")
+  "Scan and show the report about the FILE.")
 
 
 ;;;###autoload
@@ -1948,7 +1961,7 @@ When prefix ARG is non-nil, prompt project."
 
 ;;;###autoload
 (defun elisp-scan-filter-commands (&rest _)
-  "Toggle whether to show only unused items."
+  "Toggle display of command items in a list view."
   (interactive)
   (elisp-scan-toggle-filter 'elisp-scan--command-pred)
   (elisp-scan-rerender-refs))
@@ -2076,14 +2089,14 @@ When prefix ARG is non-nil, prompt project."
       (timerp elisp-scan-timer)))]
   (interactive)
   (if (derived-mode-p 'elisp-scan-report-mode)
-      (transient-setup 'elisp-scan-list-menu)
+      (transient-setup #'elisp-scan-list-menu)
     (elisp-scan-menu)))
 
 ;;; ivy
 (defvar ivy-last)
 (defvar elisp-scan-ivy-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-d") 'elisp-scan-ivy-remove-item)
+    (define-key map (kbd "C-c C-d") #'elisp-scan-ivy-remove-item)
     map))
 
 ;;;###autoload
