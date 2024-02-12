@@ -60,13 +60,13 @@
 (declare-function ivy-update-candidates "ivy")
 (declare-function ivy--kill-current-candidate "ivy")
 
-(defcustom elisp-scan-types-symbols '(defun cl-defun defvar defconst defmacro
-                                            defvar-local cl-defun cl-defmacro
-                                            transient-define-suffix
-                                            transient-define-argument
-                                            transient-define-prefix
-                                            transient-define-infix
-                                            defun-ivy+)
+(defcustom elisp-scan-types-symbols '(defun cl-defun defcustom defvar defconst
+                                      defmacro defvar-local cl-defun cl-defmacro
+                                      transient-define-suffix
+                                      transient-define-argument
+                                      transient-define-prefix
+                                      transient-define-infix
+                                      defun-ivy+)
   "Symbols which should always be checked."
   :type '(repeat symbol)
   :group 'elisp-scan)
@@ -287,15 +287,11 @@ Arguments BOUND, NOERROR, COUNT has the same meaning as `re-search-forward'."
 
 (defun elisp-scan-types-re ()
   "Return regexp for definitions from `elisp-scan-types-symbols'."
-  (concat "\\("
-          "[(]"
-          "\\(" (mapconcat #'regexp-quote
-                           (mapcar #'symbol-name elisp-scan-types-symbols)
-                           "\\|")
-          "\\)"
-          "[\s\t\n]"
-          "\\([^\s\t\n),]+\\)"
-          "\\)"))
+  (concat "("
+          (regexp-opt (mapcar (apply-partially #'format "%s")
+                              elisp-scan-types-symbols)
+                      'symbols)
+          "[\s\t\n]\\([^\s\t\n),]+\\)"))
 
 (defun elisp-scan-backward-list (&optional n)
   "Move backward across N balanced group of parentheses.
@@ -479,24 +475,25 @@ ITEM should be a propertized string or a plist."
         (regexp (elisp-scan-types-re)))
     (goto-char (point-min))
     (while (elisp-scan-re-search-forward regexp nil t 1)
-      (let ((id (match-string-no-properties 3))
-            (type (match-string-no-properties 2))
+      (let ((id (match-string-no-properties 2))
+            (type (match-string-no-properties 1))
             (re))
         (setq re (elisp-scan-make-re id))
         (unless (save-excursion
                   (elisp-scan-re-search-forward
                    re nil t 1))
-          (when (null (save-excursion
-                        (elisp-scan-re-search-backward
-                         re nil t 2)))
-            (when-let* ((list-start (nth 1 (nth 9 (syntax-ppss (point)))))
-                        (file
-                         (save-excursion
-                           (goto-char list-start)
-                           (forward-char 1)
-                           (when-let ((start (1+ (point))))
-                             (forward-sexp 1)
-                             (buffer-substring-no-properties start (1- (point)))))))
+          (unless (save-excursion
+                    (elisp-scan-re-search-backward
+                     re nil t 2))
+            (when-let*
+                ((list-start (nth 1 (nth 9 (syntax-ppss (point)))))
+                 (file
+                  (save-excursion
+                    (goto-char list-start)
+                    (forward-char 1)
+                    (when-let ((start (1+ (point))))
+                      (forward-sexp 1)
+                      (buffer-substring-no-properties start (1- (point)))))))
               (push (propertize id
                                 :file file
                                 :type type
