@@ -1,4 +1,4 @@
-;;; elisp-scan.el --- Configure scan -*- lexical-binding: t -*-
+;;; elisp-scan.el --- Find unused code and print reports for Elisp files -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2022 Karim Aziiev <karim.aziiev@gmail.com>
 

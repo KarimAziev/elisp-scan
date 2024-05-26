@@ -2,7 +2,7 @@
 
 Find unused code and print reports for Emacs Lisp files.
 
-~elisp-scan~ use mixed text search - initial "dumb" searching with ~ag~, then parses the code with elisp. 
+~elisp-scan~ use mixed text search - initial "dumb" searching with ~ag~, then parses the code with elisp.
 
 [[./demo.gif][./demo.gif]]
 
@@ -36,13 +36,13 @@ Or download the repository and add it to your ~load-path~.
 (require 'elisp-scan)
 #+end_src
 ** Usage
-   
+
 The most straightforward usage is to invoke transient popup ~M-x elisp-scan-menu~ and ~M-x elisp-scan-list-menu~ (in report buffers).
 
 - ~elisp-scan-file~ Scan the Elisp file and show the report.
 - ~elisp-scan-dir~ Scan elisp files in the directory and show the report.
 - ~elisp-scan-project~  Scan project files and show the report.
-- ~elisp-scan-all-unused-defs~ Same as ~elisp-scan-project~ but with predefined filters to show only unused items. 
+- ~elisp-scan-all-unused-defs~ Same as ~elisp-scan-project~ but with predefined filters to show only unused items.
 
 This command will activate =elisp-scan-report-mode= with such bindings:
 
@@ -67,6 +67,6 @@ Rename exact matches of the symbol at the point.
 Read unused definitions of the current file with ivy. To remove one item without exiting the minibuffer, use =C-c C-d=. To remove or back up a batch of items, mark them. With the optional prefix =arg= include only the current file.
 
 ** Customizations
-- ~elisp-scan-initial-filters~ Initial filters in report list mode. 
+- ~elisp-scan-initial-filters~ Initial filters in report list mode.
 - ~elisp-scan-permanent-dirs~ In which directories always check usage.
 - ~elisp-scan-types-symbols~ List of symbols to check.
