@@ -591,7 +591,6 @@ Result is list of plists."
                      default-directory)))))))
     founds))
 
-
 (defun elisp-scan-remove-if-in-yas-snippets (unused)
   "Check whether UNUSED is used in snippet files."
   (when (executable-find "ag")
@@ -763,7 +762,6 @@ what to do with it."
     map)
   "Keymap used in tabulated views.")
 
-
 (defun elisp-scan-button-action (item)
   "Navigate to the specified ITEM's location, highlighting the relevant region.
 
@@ -825,7 +823,6 @@ Argument ITEM is the propertized string or plist containing scan data."
         prev-id)
       (unless (equal prev-id id)
         (forward-line 1)))))
-
 
 (defun elisp-scan-button-data-props-at-point ()
   "Return button data props from first column."
@@ -1726,7 +1723,6 @@ marked with that character."
     (cancel-timer elisp-scan-timer))
   (setq elisp-scan-timer nil))
 
-
 ;;;###autoload
 (defun elisp-scan-rename-symbol (&optional old-name new-name files)
   "Rename symbol with OLD-NAME to NEW-NAME in FILES or project files."
@@ -2134,7 +2130,6 @@ When prefix ARG is non-nil, prompt project."
                    file
                    (elisp-scan-get-files-to-check))))))
     (ivy-update-candidates cands)))
-
 
 ;;;###autoload
 (defun elisp-scan-ivy-read-unused-items (&optional arg)
