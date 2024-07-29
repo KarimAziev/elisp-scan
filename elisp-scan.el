@@ -96,6 +96,15 @@
            (function :tag "Custom function")))
   :group 'elisp-scan)
 
+(defcustom elisp-scan-allow-recenter t
+  "Whether to recenter the window when jumping to a scanned item.
+
+When set to t, the window will recenter the point after navigating
+to the specified location. If set to nil, the window will not
+recenter, and the point will remain at its current position."
+  :type 'boolean
+  :group 'elisp-scan)
+
 (defvar elisp-scan-modes-types
   (list (cons 'define-minor-mode 2)
         (cons 'define-derived-mode 4)
@@ -755,8 +764,11 @@ what to do with it."
     map)
   "Keymap used in tabulated views.")
 
+
 (defun elisp-scan-button-action (item)
-  "Jump to ITEM."
+  "Navigate to the specified ITEM's location, highlighting the relevant region.
+
+Argument ITEM is the propertized string or plist containing scan data."
   (let ((current-window (selected-window))
         (line (elisp-scan-get-prop item :line))
         (buff (or
@@ -765,7 +777,10 @@ what to do with it."
                (find-file-noselect
                 (elisp-scan-get-prop item :file))))
         (type (elisp-scan-get-prop item :type))
-        (id (elisp-scan-get-prop item :name)))
+        (id (elisp-scan-get-prop item :name))
+        (beg)
+        (end)
+        (wnd))
     (with-selected-window (or
                            (get-buffer-window buff)
                            (window-right current-window)
@@ -776,24 +791,29 @@ what to do with it."
             (progn
               (goto-char (point-min))
               (forward-line (1- line))
+              (setq beg (point))
+              (setq end (line-end-position))
               (when id
                 (re-search-forward (elisp-scan-make-re id)
-                                   (line-end-position) t))
-              (unless (get-buffer-window buff)
-                (pop-to-buffer-same-window buff))
-              (pulse-momentary-highlight-one-line))
-          (when-let ((beg (elisp-scan-buffer-jump-to-form type id)))
+                                   end t)))
+          (setq beg (elisp-scan-buffer-jump-to-form type id))
+          (when beg
             (goto-char beg)
-            (let ((end (save-excursion
-                         (forward-sexp)
-                         (point))))
-              (when (looking-back ";;;###autoload[\n]+" 0)
-                (setq beg
-                      (elisp-scan-re-search-backward
-                       ";;;###autoload" nil t 1)))
-              (unless (get-buffer-window buff)
-                (pop-to-buffer-same-window buff))
-              (pulse-momentary-highlight-region beg end))))))))
+            (setq end (save-excursion
+                        (forward-sexp 1)
+                        (point)))
+            (when (looking-back ";;;###autoload[\n]+" 0)
+              (setq beg
+                    (elisp-scan-re-search-backward
+                     ";;;###autoload" nil t 1)))))
+        (setq wnd (get-buffer-window buff))
+        (unless wnd
+          (pop-to-buffer-same-window buff)
+          (setq wnd (get-buffer-window buff)))
+        (with-selected-window wnd
+          (when elisp-scan-allow-recenter
+            (recenter))
+          (pulse-momentary-highlight-region beg end))))))
 
 (defun elisp-scan-goto-start-of-entry ()
   "Move to the first line of the current tabulated list entry."
