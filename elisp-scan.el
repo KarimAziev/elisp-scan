@@ -2023,6 +2023,21 @@ When prefix ARG is non-nil, prompt project."
                     (line-end-position))))))
   (use-local-map elisp-scan-report-mode-map))
 
+(dolist (cmd '(elisp-scan-mark elisp-scan-unmark elisp-scan-unmark-all
+               elisp-scan-mark-unused elisp-scan-mark-commands
+               elisp-scan-mark-externals elisp-scan-remove-marked
+               elisp-scan-next-entry-line elisp-scan-prev-entry-line
+               elisp-scan-list-menu elisp-scan-cancel-timer
+               elisp-scan-push-button
+               elisp-scan-toggle-expand-all
+               elisp-scan-toggle-entry-at-point
+               elisp-scan-toggle-expand-all-local-refs
+               elisp-scan-toggle-expand-all-external-refs
+               elisp-scan-filter-unused
+               elisp-scan-filter-externals
+               elisp-scan-list-menu))
+  (function-put cmd 'command-modes
+                '(elisp-scan-report-mode)))
 
 ;;;###autoload (autoload 'elisp-scan-menu "elisp-scan.el" nil t)
 (transient-define-prefix elisp-scan-menu ()
