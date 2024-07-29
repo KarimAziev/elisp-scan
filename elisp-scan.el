@@ -477,7 +477,6 @@ ITEM should be a propertized string or a plist."
                    autoload-beg))))))
       (cons (or autoload-start beg) end))))
 
-
 (defun elisp-scan-find-all-unsused-defs-0 ()
   "Find all unused definitions in current buffer."
   (let ((unused)
@@ -969,7 +968,6 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
                        'action 'elisp-scan-button-action))))
       btn)))
 
-
 (defun elisp-scan-sexp-declare-p (sexp)
   "Return non-nil if SEXP is declared form."
   (pcase sexp
@@ -1021,7 +1019,6 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
   (while (memq (car-safe exp) '(quote function))
     (setq exp (cadr exp)))
   exp)
-
 
 (defun elisp-scan-parse-at-point ()
   "Parse `sexp-at-point' at point."
@@ -1296,7 +1293,6 @@ If NO-CONFIRM is non nil, don't prompt."
                       (kill-buffer buff-to-kill)))))))))
     (remove-hook 'minibuffer-setup-hook #'elisp-scan-batch-pop-current-buffer)))
 
-
 (defun elisp-scan-confirm-replace (beg end &optional replacement)
   "Make overlay between BEG and END and show REPLACEMENT at the END."
   (let ((cover-ov (make-overlay beg end)))
@@ -1387,14 +1383,12 @@ Argument PLIST is a property list containing various key-value pairs."
                                                          elisp-scan-filters))
     (elisp-scan-rerender)))
 
-
 (defun elisp-scan-get-files-from-cached-entries ()
   "Return list of uniq files from `elisp-scan-cached-entries'."
   (seq-uniq
    (mapcar (lambda (it)
              (plist-get it :file))
            elisp-scan-cached-entries)))
-
 
 (defun elisp-scan-rerender-refs (&optional rescan)
   "Rerender tabulated entries.
@@ -1580,7 +1574,6 @@ DATA should be an argument for ACTION."
   "Return non nil if PLIST's property :ext-refs is non nil."
   (plist-get plist :ext-refs))
 
-
 (defun elisp-scan-toggle-filter (fn)
   "Push or pop symbol function FN from `elisp-scan-filters'."
   (setq elisp-scan-filters
@@ -1625,26 +1618,22 @@ PRED should accepts one argument - plist."
                                   (plist-get pl :id)
                                   marked-ids))))))
 
-;;;###autoload
 (defun elisp-scan-mark-commands ()
   "Mark interactive entries."
   (interactive)
   (elisp-scan-mark-by-pred (elisp-scan-rpartial
                             #'plist-get :interactive)))
 
-;;;###autoload
 (defun elisp-scan-mark-externals ()
   "Mark entries with external references."
   (interactive)
   (elisp-scan-mark-by-pred 'elisp-scan--ext-pred))
 
-;;;###autoload
 (defun elisp-scan-mark-unused ()
   "Mark unused entries."
   (interactive)
   (elisp-scan-mark-by-pred 'elisp-scan--unused-pred))
 
-;;;###autoload
 (defun elisp-scan-mark ()
   "Mark a tabulated entry at point and move to the next one."
   (interactive)
@@ -1654,8 +1643,6 @@ PRED should accepts one argument - plist."
     (tabulated-list-put-tag "*" t))
   (text-property-search-forward 'tabulated-list-id))
 
-
-;;;###autoload
 (defun elisp-scan-unmark ()
   "Unmark a tabulated entry at point and move to the previous one."
   (interactive)
@@ -1665,7 +1652,6 @@ PRED should accepts one argument - plist."
     (tabulated-list-put-tag " " t))
   (text-property-search-backward 'tabulated-list-id))
 
-;;;###autoload
 (defun elisp-scan-unmark-all (&optional char)
   "Unmark all marked entries.
 If optional CHAR is non-nil, then only return items
@@ -1681,8 +1667,6 @@ marked with that character."
         (_ (tabulated-list-put-tag " ")))
       (forward-line))))
 
-
-;;;###autoload
 (defun elisp-scan-remove-marked ()
   "Mark a tabulated entry and move to the next line."
   (interactive)
@@ -1716,24 +1700,18 @@ marked with that character."
         (with-current-buffer orig-buff
           (revert-buffer))))))
 
-
-;;;###autoload
 (defun elisp-scan-next-entry-line ()
   "Goto to the next entry."
   (interactive)
   (require 'text-property-search)
   (text-property-search-forward 'tabulated-list-id))
 
-
-;;;###autoload
 (defun elisp-scan-prev-entry-line ()
   "Go to the previous entry."
   (interactive)
   (require 'text-property-search)
   (text-property-search-backward 'tabulated-list-id))
 
-
-;;;###autoload
 (defun elisp-scan-push-button ()
   "Activate closest button at point."
   (interactive)
@@ -1741,7 +1719,6 @@ marked with that character."
                  (skip-chars-forward "\s\t*")
                  (point))))
 
-;;;###autoload
 (defun elisp-scan-cancel-timer ()
   "Reset `elisp-scan-timer'."
   (interactive)
@@ -1789,6 +1766,7 @@ marked with that character."
                  (pop-to-buffer-same-window shown))
                (elisp-scan--replace beg end renamed-name))))))
      files)))
+
 ;;;###autoload
 (defun elisp-scan-all-unused-defs ()
   "Check every project file for unused definitions."
@@ -1878,11 +1856,10 @@ When prefix ARG is non-nil, prompt project."
       (tabulated-list-print)
       (display-buffer (current-buffer)))))
 
+;;;###autoload
 (defalias 'elisp-scan-current-file #'elisp-scan-file
   "Scan and show the report about the FILE.")
 
-
-;;;###autoload
 (defun elisp-scan-toggle-entry-at-point ()
   "Collapse or expand references for entry at point."
   (interactive)
@@ -1913,7 +1890,6 @@ When prefix ARG is non-nil, prompt project."
                                   elisp-scan-filters))
     (elisp-scan-rerender)))
 
-;;;###autoload
 (defun elisp-scan-toggle-expand-all-local-refs ()
   "Toggle showing local references."
   (interactive)
@@ -1929,7 +1905,6 @@ When prefix ARG is non-nil, prompt project."
                                   elisp-scan-filters))
     (elisp-scan-rerender)))
 
-;;;###autoload
 (defun elisp-scan-toggle-expand-all-external-refs ()
   "Toggle showing external references."
   (interactive)
@@ -1945,7 +1920,6 @@ When prefix ARG is non-nil, prompt project."
                                   elisp-scan-filters))
     (elisp-scan-rerender)))
 
-;;;###autoload
 (defun elisp-scan-toggle-expand-all ()
   "Toggle showing all references."
   (interactive)
@@ -1965,7 +1939,6 @@ When prefix ARG is non-nil, prompt project."
                                     elisp-scan-filters))
       (elisp-scan-rerender))))
 
-;;;###autoload
 (defun elisp-scan-filter-externals (&rest _)
   "Toggle whether to show only items used in other files."
   (interactive)
@@ -1976,15 +1949,12 @@ When prefix ARG is non-nil, prompt project."
           (push 'elisp-scan--ext-pred elisp-scan-filters)))
   (elisp-scan-rerender-refs))
 
-;;;###autoload
 (defun elisp-scan-filter-commands (&rest _)
   "Toggle display of command items in a list view."
   (interactive)
   (elisp-scan-toggle-filter 'elisp-scan--command-pred)
   (elisp-scan-rerender-refs))
 
-
-;;;###autoload
 (defun elisp-scan-filter-unused (&rest _)
   "Toggle whether to show only unused items."
   (interactive)
