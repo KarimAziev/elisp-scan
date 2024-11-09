@@ -344,7 +344,7 @@ outside of any parentheses, comments, or strings encountered in the scan."
           (setq found (ignore-errors (forward-sexp -1)
                                      (when (eq type-symb (symbol-at-point))
                                        (backward-up-list 1)
-                                       (when-let ((sexp
+                                       (when-let* ((sexp
                                                    (elisp-scan-list-at-point)))
                                          (when (and (eq (car-safe sexp)
                                                         type-symb)
@@ -414,7 +414,7 @@ BUFFER-OR-FILE can be a buffer or file."
              (insert-buffer-substring-no-properties
               (get-buffer buffer-or-file)))
             ((file-exists-p buffer-or-file)
-             (if-let ((buff (get-file-buffer buffer-or-file)))
+             (if-let* ((buff (get-file-buffer buffer-or-file)))
                  (insert-buffer-substring-no-properties
                   buff)
                (insert-file-contents buffer-or-file))))
@@ -437,7 +437,7 @@ BUFFER-OR-FILE can be a buffer or file."
               (when (file-exists-p file)
                 (erase-buffer)
                 (insert-file-contents file)
-                (when-let ((sexps (elisp-scan-top-level-lists)))
+                (when-let* ((sexps (elisp-scan-top-level-lists)))
                   (push (cons file sexps) founds))))))
         founds)))
 
@@ -457,7 +457,7 @@ ITEM should be a propertized string or a plist."
 
 (defun elisp-scan-find-item-bounds (type name)
   "Return bounds of list with TYPE and NAME."
-  (when-let ((beg (elisp-scan-buffer-jump-to-form type name)))
+  (when-let* ((beg (elisp-scan-buffer-jump-to-form type name)))
     (goto-char beg)
     (let ((end (save-excursion
                  (forward-sexp 1)
@@ -471,7 +471,7 @@ ITEM should be a propertized string or a plist."
                  (when (or (not (looking-at "[(]autoload[\s\t]+'"))
                            (when (re-search-forward
                                   "[(]autoload[\s\t]+'" nil t 1)
-                             (when-let ((sym (symbol-at-point)))
+                             (when-let* ((sym (symbol-at-point)))
                                (eq sym (if (symbolp name) name (intern
                                                                 name))))))
                    autoload-beg))))))
@@ -499,7 +499,7 @@ ITEM should be a propertized string or a plist."
                   (save-excursion
                     (goto-char list-start)
                     (forward-char 1)
-                    (when-let ((start (1+ (point))))
+                    (when-let* ((start (1+ (point))))
                       (forward-sexp 1)
                       (buffer-substring-no-properties start (1- (point)))))))
               (push (propertize id
@@ -536,7 +536,7 @@ ITEM should be a propertized string or a plist."
 (defun elisp-scan-find-lines-with-matches (str files &optional command)
   "Exec COMMAND (`ag' or `find') to find FILES with occurences of STR.
 Result is list of plists."
-  (when-let ((fn
+  (when-let* ((fn
               (pcase command
                 ("ag" 'elisp-scan--exec-ag)
                 ("find" 'elisp-scan--exec-find)
@@ -551,7 +551,7 @@ Result is list of plists."
                      (file-name-directory dir-or-file))))
           (unless (member dir processed-dirs)
             (setq processed-dirs (push dir processed-dirs))
-            (when-let ((found (funcall fn str dir)))
+            (when-let* ((found (funcall fn str dir)))
               (setq found (mapcar (lambda (file)
                                     (expand-file-name
                                      file dir))
@@ -595,7 +595,7 @@ Result is list of plists."
   "Check whether UNUSED is used in snippet files."
   (when (executable-find "ag")
     (require 'yasnippet nil t)
-    (if-let ((dirs (when (fboundp 'yas-snippet-dirs)
+    (if-let* ((dirs (when (fboundp 'yas-snippet-dirs)
                      (yas-snippet-dirs))))
         (seq-remove (lambda (it)
                       (elisp-scan-check-used-in-dirs-p it
@@ -671,7 +671,7 @@ what to do with it."
             (with-current-buffer buff
               (if buffer-read-only
                   (push file exlcuded-files)
-                (when-let ((bounds (elisp-scan-find-item-bounds
+                (when-let* ((bounds (elisp-scan-find-item-bounds
                                     type
                                     id)))
                   (unless for-all
@@ -814,7 +814,7 @@ Argument ITEM is the propertized string or plist containing scan data."
 
 (defun elisp-scan-goto-start-of-entry ()
   "Move to the first line of the current tabulated list entry."
-  (when-let ((id (tabulated-list-get-id)))
+  (when-let* ((id (tabulated-list-get-id)))
     (let ((prev-id))
       (while (and
               (equal (setq prev-id (tabulated-list-get-id))
@@ -828,7 +828,7 @@ Argument ITEM is the propertized string or plist containing scan data."
   "Return button data props from first column."
   (save-excursion
     (elisp-scan-goto-start-of-entry)
-    (when-let ((entry (tabulated-list-get-entry)))
+    (when-let* ((entry (tabulated-list-get-entry)))
       (plist-get (text-properties-at 0 (aref entry 0)) 'button-data))))
 
 (defun elisp-scan-tabulated-marked (&optional char)
@@ -853,7 +853,7 @@ marked with that character."
 Permanent projects defined in `elisp-scan-permanent-dirs'."
   (let ((project-find-functions '(project-try-vc try)))
     (if-let* ((curr
-               (when-let ((project (ignore-errors (project-current))))
+               (when-let* ((project (ignore-errors (project-current))))
                  (if (fboundp 'project-root)
                      (project-root project)
                    (with-no-warnings
@@ -1005,7 +1005,7 @@ Return alist of (SYMBOL-NAME . DEFINITION-TYPE)."
 
 (defun elisp-scan-list-at-point ()
   "Return list at point."
-  (when-let ((sexp (sexp-at-point)))
+  (when-let* ((sexp (sexp-at-point)))
     (when (proper-list-p sexp)
       sexp)))
 
@@ -1166,7 +1166,7 @@ Return list of absolute files."
                         "\n"
                         t)))
     (delq nil (mapcar (lambda (it)
-                        (when-let ((line-start (string-match-p
+                        (when-let* ((line-start (string-match-p
                                                 ":[0-9]+:" it)))
                           ;; (substring-no-properties it 0 line-start)
                           it))
@@ -1180,7 +1180,7 @@ Return list of absolute files."
 
 (defun elisp-scan-file-pred (file plist)
   "Return t if PLIST's property :file equals to FILE."
-  (when-let ((plist-file (elisp-scan-get-prop plist
+  (when-let* ((plist-file (elisp-scan-get-prop plist
                                               :file)))
     (file-equal-p file plist-file)))
 
@@ -1238,7 +1238,7 @@ If NO-CONFIRM is non nil, don't prompt."
 
 (defun elisp-scan-batch-pop-current-buffer (&rest _)
   "If buffer of `elisp-scan-batch-current-file' is not visible, show it."
-  (when-let ((buff
+  (when-let* ((buff
               (and elisp-scan-batch-current-file
                    (get-file-buffer elisp-scan-batch-current-file))))
     (unless (get-buffer-window buff)
@@ -1320,7 +1320,7 @@ If NO-CONFIRM is non nil, don't prompt."
                                       elisp-scan-cached-entries
                                       elisp-scan-filters))
         (elisp-scan-rerender))
-      (if-let ((next-file (pop elisp-scan-files)))
+      (if-let* ((next-file (pop elisp-scan-files)))
           (setq elisp-scan-timer
                 (run-with-idle-timer 1 nil
                                      #'elisp-scan-render-chunk-in-buffer
@@ -1600,7 +1600,7 @@ PRED should accepts one argument - plist."
   (save-excursion
     (goto-char (point-min))
     (while (text-property-search-forward 'tabulated-list-id)
-      (when-let ((props (elisp-scan-button-data-props-at-point)))
+      (when-let* ((props (elisp-scan-button-data-props-at-point)))
         (when (funcall pred props)
           (tabulated-list-put-tag "*"))))))
 
@@ -1672,7 +1672,7 @@ marked with that character."
                  :file
                  (or
                   (elisp-scan-tabulated-marked)
-                  (when-let ((props
+                  (when-let* ((props
                               (elisp-scan-button-data-props-at-point)))
                     (list props)))))
         (removed-counter 0))
@@ -1682,7 +1682,7 @@ marked with that character."
         (dolist (item file-items)
           (setq item (pop file-items))
           (with-current-buffer (find-file-noselect file)
-            (when-let ((bounds (elisp-scan-find-item-bounds
+            (when-let* ((bounds (elisp-scan-find-item-bounds
                                 (plist-get item :type)
                                 (plist-get item :sym))))
               (delete-region (car bounds)
@@ -2158,7 +2158,7 @@ With optional prefix ARG include only current file."
                      (with-minibuffer-selected-window
                        (with-current-buffer
                            (find-file-noselect file)
-                         (when-let ((bounds
+                         (when-let* ((bounds
                                      (elisp-scan-find-item-bounds type id)))
                            (unless (get-buffer-window (current-buffer))
                              (pop-to-buffer-same-window (current-buffer)))
@@ -2166,7 +2166,7 @@ With optional prefix ARG include only current file."
                                                         (cdr bounds)))))
                    (with-current-buffer
                        (find-file-noselect file)
-                     (when-let ((bounds (elisp-scan-find-item-bounds type id)))
+                     (when-let* ((bounds (elisp-scan-find-item-bounds type id)))
                        (unless (get-buffer-window (current-buffer))
                          (pop-to-buffer-same-window (current-buffer)))
                        (elisp-scan-highlight-bounds (car bounds)
